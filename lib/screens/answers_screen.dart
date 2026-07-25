@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import '../services/api_client.dart';
 import '../theme.dart';
 
@@ -18,6 +21,7 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
   late final Animation<double> _fadeAnimation;
 
   bool _loading = true;
+  bool _generatingPdf = false;
   String? _error;
   List<_TopicData> _topics = [];
   String _quizTitle = '';
@@ -99,12 +103,352 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
     }
   }
 
+  // ─── PDF Generation ────────────────────────────────────────────────────────
+  Future<void> _downloadPdf() async {
+    setState(() => _generatingPdf = true);
+    try {
+      final doc = pw.Document();
+      final greenColor = PdfColor.fromHex('059669');
+      final lightGreen = PdfColor.fromHex('ECFDF5');
+      final amberColor = PdfColor.fromHex('D97706');
+      final amberLight = PdfColor.fromHex('FFFBEB');
+      final darkText = PdfColor.fromHex('1E293B');
+      final mutedText = PdfColor.fromHex('64748B');
+      final purpleColor = PdfColor.fromHex('7C3AED');
+      final purpleLight = PdfColor.fromHex('F5F3FF');
+
+      int globalQ = 0;
+
+      for (final topic in _topics) {
+        final List<pw.Widget> pageWidgets = [];
+
+        // Topic header
+        pageWidgets.add(
+          pw.Container(
+            padding: const pw.EdgeInsets.all(12),
+            decoration: pw.BoxDecoration(
+              color: greenColor,
+              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+            ),
+            child: pw.Text(
+              topic.name,
+              style: pw.TextStyle(
+                color: PdfColors.white,
+                fontWeight: pw.FontWeight.bold,
+                fontSize: 15,
+              ),
+            ),
+          ),
+        );
+        pageWidgets.add(pw.SizedBox(height: 12));
+
+        for (final sub in topic.subtopics) {
+          if (sub.name.isNotEmpty && sub.name != topic.name) {
+            pageWidgets.add(
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(bottom: 6),
+                child: pw.Text(
+                  sub.name,
+                  style: pw.TextStyle(
+                    color: greenColor,
+                    fontWeight: pw.FontWeight.bold,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            );
+          }
+
+          for (final q in sub.questions) {
+            globalQ++;
+            final isCode = q.qtype == 'coding';
+            final isCodeMcq = q.qtype == 'code_mcq';
+            final isMulti = q.qtype == 'mcq_multi';
+
+            final typeLabel = isCode
+                ? 'Coding'
+                : isCodeMcq
+                    ? 'Code MCQ'
+                    : isMulti
+                        ? 'Multi-Select'
+                        : 'Single Choice';
+
+            final qWidgets = <pw.Widget>[
+              // Q number + text
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Container(
+                    width: 22,
+                    height: 22,
+                    decoration: pw.BoxDecoration(
+                      color: lightGreen,
+                      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                    ),
+                    child: pw.Center(
+                      child: pw.Text(
+                        '$globalQ',
+                        style: pw.TextStyle(
+                          color: greenColor,
+                          fontWeight: pw.FontWeight.bold,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ),
+                  pw.SizedBox(width: 8),
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          q.text,
+                          style: pw.TextStyle(
+                            fontWeight: pw.FontWeight.bold,
+                            fontSize: 12,
+                            color: darkText,
+                          ),
+                        ),
+                        pw.SizedBox(height: 3),
+                        pw.Row(children: [
+                          pw.Container(
+                            padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: pw.BoxDecoration(
+                              color: isCode ? purpleLight : lightGreen,
+                              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                            ),
+                            child: pw.Text(
+                              typeLabel,
+                              style: pw.TextStyle(
+                                color: isCode ? purpleColor : greenColor,
+                                fontSize: 8,
+                                fontWeight: pw.FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          pw.SizedBox(width: 6),
+                          pw.Container(
+                            padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: pw.BoxDecoration(
+                              color: amberLight,
+                              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                            ),
+                            child: pw.Text(
+                              '${q.marks.toStringAsFixed(q.marks == q.marks.truncateToDouble() ? 0 : 1)} mark${q.marks != 1 ? "s" : ""}',
+                              style: pw.TextStyle(color: amberColor, fontSize: 8, fontWeight: pw.FontWeight.bold),
+                            ),
+                          ),
+                        ]),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ];
+
+            // Code block
+            if ((isCode || isCodeMcq) && q.code.isNotEmpty) {
+              qWidgets.add(pw.SizedBox(height: 6));
+              qWidgets.add(
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(8),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColor.fromHex('1E293B'),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                  ),
+                  child: pw.Text(
+                    q.code,
+                    style: pw.TextStyle(
+                      font: pw.Font.courier(),
+                      fontSize: 9,
+                      color: PdfColor.fromHex('94A3B8'),
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            // Choices
+            if (!isCode && q.choices.isNotEmpty) {
+              qWidgets.add(pw.SizedBox(height: 6));
+              for (final c in q.choices) {
+                final isCorrect = q.answers.contains(c.id);
+                qWidgets.add(
+                  pw.Container(
+                    margin: const pw.EdgeInsets.only(bottom: 4),
+                    padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: pw.BoxDecoration(
+                      color: isCorrect ? lightGreen : PdfColor.fromHex('F8FAFC'),
+                      border: pw.Border.all(
+                        color: isCorrect ? PdfColor.fromHex('34D399') : PdfColor.fromHex('E2E8F0'),
+                        width: isCorrect ? 1.5 : 0.5,
+                      ),
+                      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                    ),
+                    child: pw.Row(
+                      children: [
+                        pw.Text(
+                          isCorrect ? '[X]' : '[ ]',
+                          style: pw.TextStyle(
+                            color: isCorrect ? greenColor : mutedText,
+                            fontWeight: pw.FontWeight.bold,
+                            fontSize: 11,
+                          ),
+                        ),
+                        pw.SizedBox(width: 8),
+                        pw.Expanded(
+                          child: pw.Text(
+                            c.text,
+                            style: pw.TextStyle(
+                              fontSize: 10,
+                              color: isCorrect ? PdfColor.fromHex('065F46') : darkText,
+                              fontWeight: isCorrect ? pw.FontWeight.bold : pw.FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                        if (isCorrect)
+                          pw.Text(
+                            'Correct',
+                            style: pw.TextStyle(
+                              color: greenColor,
+                              fontSize: 8,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+            }
+
+            // Coding expected answer
+            if (isCode && q.answers.isNotEmpty) {
+              qWidgets.add(pw.SizedBox(height: 6));
+              qWidgets.add(
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(8),
+                  decoration: pw.BoxDecoration(
+                    color: purpleLight,
+                    border: pw.Border.all(color: PdfColor.fromHex('DDD6FE'), width: 0.5),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                  ),
+                  child: pw.Text(
+                    q.answers.first,
+                    style: pw.TextStyle(font: pw.Font.courier(), fontSize: 9, color: purpleColor),
+                  ),
+                ),
+              );
+            }
+
+            // Explanation
+            if (q.explanation.isNotEmpty) {
+              qWidgets.add(pw.SizedBox(height: 6));
+              qWidgets.add(
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(8),
+                  decoration: pw.BoxDecoration(
+                    color: amberLight,
+                    border: pw.Border.all(color: PdfColor.fromHex('FDE68A'), width: 0.5),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                  ),
+                  child: pw.Text(
+                    'Explanation: ${q.explanation}',
+                    style: pw.TextStyle(fontSize: 9, color: PdfColor.fromHex('92400E')),
+                  ),
+                ),
+              );
+            }
+
+            pageWidgets.add(
+              pw.Container(
+                margin: const pw.EdgeInsets.only(bottom: 10),
+                padding: const pw.EdgeInsets.all(10),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.white,
+                  border: pw.Border.all(color: PdfColor.fromHex('D1FAE5'), width: 0.8),
+                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: qWidgets,
+                ),
+              ),
+            );
+          }
+        }
+
+        doc.addPage(
+          pw.MultiPage(
+            pageFormat: PdfPageFormat.a4,
+            margin: const pw.EdgeInsets.all(24),
+            header: (ctx) => pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Expanded(
+                      child: pw.Text(
+                        _quizTitle,
+                        style: pw.TextStyle(
+                          fontWeight: pw.FontWeight.bold,
+                          fontSize: 14,
+                          color: darkText,
+                        ),
+                      ),
+                    ),
+                    pw.Container(
+                      padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: pw.BoxDecoration(
+                        color: lightGreen,
+                        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                      ),
+                      child: pw.Text(
+                        'Answer Key',
+                        style: pw.TextStyle(color: greenColor, fontSize: 9, fontWeight: pw.FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 4),
+                pw.Divider(color: PdfColor.fromHex('E2E8F0'), thickness: 0.5),
+                pw.SizedBox(height: 8),
+              ],
+            ),
+            footer: (ctx) => pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('Generated by Online Assessment Platform',
+                    style: pw.TextStyle(color: mutedText, fontSize: 8)),
+                pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
+                    style: pw.TextStyle(color: mutedText, fontSize: 8)),
+              ],
+            ),
+            build: (ctx) => pageWidgets,
+          ),
+        );
+      }
+
+      final bytes = await doc.save();
+      await Printing.sharePdf(bytes: bytes, filename: '${_quizTitle.replaceAll(' ', '_')}_Answer_Key.pdf');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF generation failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _generatingPdf = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Column(
         children: [
-          // Header
+          // ── Header ──────────────────────────────────────────────────────────
           Container(
             width: double.infinity,
             decoration: const BoxDecoration(
@@ -117,29 +461,71 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
             child: SafeArea(
               bottom: false,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+                padding: const EdgeInsets.fromLTRB(8, 12, 12, 18),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+                          icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                              color: Colors.white, size: 20),
                           onPressed: () => Navigator.of(context).pop(),
                         ),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: 2),
+                        // Title — wraps freely, no ellipsis
                         Expanded(
-                          child: Text(
-                            _quizTitle,
-                            style: const TextStyle(
-                              fontFamily: BwbTheme.fontFamily,
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Text(
+                              _quizTitle,
+                              style: const TextStyle(
+                                fontFamily: BwbTheme.fontFamily,
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                height: 1.3,
+                              ),
+                              softWrap: true,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
+                        ),
+                        const SizedBox(width: 8),
+                        // PDF Download button
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: _generatingPdf
+                              ? const SizedBox(
+                                  width: 28,
+                                  height: 28,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2.5,
+                                  ),
+                                )
+                              : Tooltip(
+                                  message: 'Download Answer Key PDF',
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(10),
+                                    onTap: _loading || _error != null ? null : _downloadPdf,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.2),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                            color: Colors.white.withValues(alpha: 0.35),
+                                            width: 1),
+                                      ),
+                                      child: const Icon(
+                                        Icons.download_rounded,
+                                        color: Colors.white,
+                                        size: 20,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                         ),
                       ],
                     ),
@@ -175,9 +561,9 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
                         padding: const EdgeInsets.only(left: 44),
                         child: Text(
                           _quizDescription,
-                          style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.8), fontSize: 12),
+                          softWrap: true,
                         ),
                       ),
                     ],
@@ -187,7 +573,7 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
             ),
           ),
 
-          // Body
+          // ── Body ─────────────────────────────────────────────────────────────
           Expanded(
             child: _loading
                 ? const Center(
@@ -196,13 +582,15 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
                       children: [
                         CircularProgressIndicator(color: Color(0xFF10B981)),
                         SizedBox(height: 12),
-                        Text('Loading answer key…', style: TextStyle(color: BwbTheme.muted)),
+                        Text('Loading answer key…',
+                            style: TextStyle(color: BwbTheme.muted)),
                       ],
                     ),
                   )
                 : _error != null
                     ? _buildError()
-                    : FadeTransition(opacity: _fadeAnimation, child: _buildContent()),
+                    : FadeTransition(
+                        opacity: _fadeAnimation, child: _buildContent()),
           ),
         ],
       ),
@@ -218,9 +606,9 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
           children: [
             const Icon(Icons.lock_outline_rounded, size: 48, color: BwbTheme.muted),
             const SizedBox(height: 12),
-            Text(
+            const Text(
               'Answer key not available',
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: BwbTheme.fontFamily,
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
@@ -241,7 +629,8 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF10B981),
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
               ),
             ),
           ],
@@ -253,11 +642,10 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
   Widget _buildContent() {
     if (_topics.isEmpty) {
       return const Center(
-        child: Text('No questions found.', style: TextStyle(color: BwbTheme.muted)),
+        child: Text('No questions found.',
+            style: TextStyle(color: BwbTheme.muted)),
       );
     }
-
-
 
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
@@ -265,20 +653,23 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
       itemBuilder: (ctx, ti) {
         final topic = _topics[ti];
         final isExpanded = _expandedTopic == ti;
-        final totalTopicQs = topic.subtopics.fold(0, (sum, s) => sum + s.questions.length);
+        final totalTopicQs =
+            topic.subtopics.fold(0, (sum, s) => sum + s.questions.length);
 
-        // Count questions before this topic for global numbering
         int beforeCount = 0;
         for (int i = 0; i < ti; i++) {
-          beforeCount += _topics[i].subtopics.fold(0, (s, sub) => s + sub.questions.length);
+          beforeCount += _topics[i]
+              .subtopics
+              .fold(0, (s, sub) => s + sub.questions.length);
         }
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Topic header (expandable)
+            // ── Topic header (expandable) ──────────────────────────────
             GestureDetector(
-              onTap: () => setState(() => _expandedTopic = isExpanded ? -1 : ti),
+              onTap: () =>
+                  setState(() => _expandedTopic = isExpanded ? -1 : ti),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 margin: const EdgeInsets.only(bottom: 8),
@@ -289,15 +680,14 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
                           colors: [Color(0xFF059669), Color(0xFF10B981)],
                         )
                       : LinearGradient(
-                          colors: [
-                            Colors.grey.shade50,
-                            Colors.grey.shade100,
-                          ],
+                          colors: [Colors.grey.shade50, Colors.grey.shade100],
                         ),
                   borderRadius: BorderRadius.circular(12),
                   boxShadow: [
                     BoxShadow(
-                      color: (isExpanded ? const Color(0xFF10B981) : Colors.grey)
+                      color: (isExpanded
+                              ? const Color(0xFF10B981)
+                              : Colors.grey)
                           .withValues(alpha: 0.15),
                       blurRadius: 8,
                       offset: const Offset(0, 2),
@@ -305,7 +695,9 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
                   ],
                 ),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Number circle
                     Container(
                       width: 32,
                       height: 32,
@@ -319,7 +711,9 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
                         child: Text(
                           '${ti + 1}',
                           style: TextStyle(
-                            color: isExpanded ? Colors.white : const Color(0xFF059669),
+                            color: isExpanded
+                                ? Colors.white
+                                : const Color(0xFF059669),
                             fontWeight: FontWeight.bold,
                             fontSize: 13,
                           ),
@@ -327,6 +721,7 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
                       ),
                     ),
                     const SizedBox(width: 12),
+                    // Topic name — wraps fully, no ellipsis
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -338,35 +733,47 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
                               fontWeight: FontWeight.bold,
                               fontSize: 14,
                               color: isExpanded ? Colors.white : BwbTheme.text,
+                              height: 1.35,
                             ),
+                            softWrap: true, // ← wraps instead of truncating
                           ),
+                          const SizedBox(height: 2),
                           Text(
-                            '$totalTopicQs questions',
+                            '$totalTopicQs question${totalTopicQs != 1 ? "s" : ""}',
                             style: TextStyle(
                               fontSize: 11,
-                              color: isExpanded ? Colors.white.withValues(alpha: 0.8) : BwbTheme.muted,
+                              color: isExpanded
+                                  ? Colors.white.withValues(alpha: 0.8)
+                                  : BwbTheme.muted,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    Icon(
-                      isExpanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
-                      color: isExpanded ? Colors.white : BwbTheme.muted,
+                    const SizedBox(width: 6),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Icon(
+                        isExpanded
+                            ? Icons.expand_less_rounded
+                            : Icons.expand_more_rounded,
+                        color: isExpanded ? Colors.white : BwbTheme.muted,
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
 
-            // Questions (visible when expanded)
+            // ── Questions (visible when expanded) ─────────────────────
             if (isExpanded)
               ...topic.subtopics.expand((sub) {
                 final widgets = <Widget>[];
                 if (sub.name.isNotEmpty && sub.name != topic.name) {
                   widgets.add(
                     Padding(
-                      padding: const EdgeInsets.only(left: 4, bottom: 6, top: 2),
+                      padding:
+                          const EdgeInsets.only(left: 4, bottom: 6, top: 2),
                       child: Text(
                         sub.name,
                         style: const TextStyle(
@@ -407,7 +814,8 @@ class _TopicData {
 class _SubtopicData {
   final String id, name;
   final List<_QuestionData> questions;
-  _SubtopicData({required this.id, required this.name, required this.questions});
+  _SubtopicData(
+      {required this.id, required this.name, required this.questions});
 }
 
 class _QuestionData {
@@ -432,7 +840,7 @@ class _ChoiceData {
   _ChoiceData({required this.id, required this.text});
 }
 
-// ─── Question card ─────────────────────────────────────────────────────────────
+// ─── Question card widget ─────────────────────────────────────────────────────
 class _QuestionCard extends StatelessWidget {
   final int number;
   final _QuestionData question;
@@ -462,7 +870,6 @@ class _QuestionCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Question header
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
             child: Row(
@@ -500,6 +907,7 @@ class _QuestionCard extends StatelessWidget {
                           color: BwbTheme.text,
                           height: 1.4,
                         ),
+                        softWrap: true,
                       ),
                       const SizedBox(height: 4),
                       Row(
@@ -520,7 +928,8 @@ class _QuestionCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 6),
                           _Tag(
-                            label: '${q.marks.toStringAsFixed(q.marks == q.marks.truncateToDouble() ? 0 : 1)} mark${q.marks != 1 ? "s" : ""}',
+                            label:
+                                '${q.marks.toStringAsFixed(q.marks == q.marks.truncateToDouble() ? 0 : 1)} mark${q.marks != 1 ? "s" : ""}',
                             color: const Color(0xFFD97706),
                           ),
                         ],
@@ -556,8 +965,8 @@ class _QuestionCard extends StatelessWidget {
 
           const SizedBox(height: 10),
 
-          // Choices (for MCQ types)
-          if (!isCode && q.choices.isNotEmpty) ...[
+          // MCQ Choices
+          if (!isCode && q.choices.isNotEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
               child: Column(
@@ -565,21 +974,30 @@ class _QuestionCard extends StatelessWidget {
                   final isCorrect = q.answers.contains(c.id);
                   return Container(
                     margin: const EdgeInsets.only(bottom: 6),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 9),
                     decoration: BoxDecoration(
-                      color: isCorrect ? const Color(0xFFECFDF5) : const Color(0xFFF8FAFC),
+                      color: isCorrect
+                          ? const Color(0xFFECFDF5)
+                          : const Color(0xFFF8FAFC),
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
-                        color: isCorrect ? const Color(0xFF34D399) : Colors.grey.shade200,
+                        color: isCorrect
+                            ? const Color(0xFF34D399)
+                            : Colors.grey.shade200,
                         width: isCorrect ? 1.5 : 1,
                       ),
                     ),
                     child: Row(
                       children: [
                         Icon(
-                          isCorrect ? Icons.check_circle_rounded : Icons.circle_outlined,
+                          isCorrect
+                              ? Icons.check_circle_rounded
+                              : Icons.circle_outlined,
                           size: 16,
-                          color: isCorrect ? const Color(0xFF059669) : Colors.grey.shade400,
+                          color: isCorrect
+                              ? const Color(0xFF059669)
+                              : Colors.grey.shade400,
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -587,9 +1005,14 @@ class _QuestionCard extends StatelessWidget {
                             c.text,
                             style: TextStyle(
                               fontSize: 13,
-                              color: isCorrect ? const Color(0xFF065F46) : BwbTheme.text,
-                              fontWeight: isCorrect ? FontWeight.w600 : FontWeight.normal,
+                              color: isCorrect
+                                  ? const Color(0xFF065F46)
+                                  : BwbTheme.text,
+                              fontWeight: isCorrect
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
                             ),
+                            softWrap: true,
                           ),
                         ),
                         if (isCorrect)
@@ -607,9 +1030,8 @@ class _QuestionCard extends StatelessWidget {
                 }).toList(),
               ),
             ),
-          ],
 
-          // Coding answer note
+          // Coding expected answer
           if (isCode) ...[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -622,7 +1044,8 @@ class _QuestionCard extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.code_rounded, color: Color(0xFF7C3AED), size: 16),
+                    const Icon(Icons.code_rounded,
+                        color: Color(0xFF7C3AED), size: 16),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -635,6 +1058,7 @@ class _QuestionCard extends StatelessWidget {
                           fontFamily: 'monospace',
                           height: 1.4,
                         ),
+                        softWrap: true,
                       ),
                     ),
                   ],
@@ -657,7 +1081,8 @@ class _QuestionCard extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.lightbulb_outline_rounded, size: 14, color: Color(0xFFD97706)),
+                  const Icon(Icons.lightbulb_outline_rounded,
+                      size: 14, color: Color(0xFFD97706)),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -667,6 +1092,7 @@ class _QuestionCard extends StatelessWidget {
                         fontSize: 12,
                         height: 1.4,
                       ),
+                      softWrap: true,
                     ),
                   ),
                 ],

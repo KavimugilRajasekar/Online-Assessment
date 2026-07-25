@@ -343,37 +343,44 @@ class _QuizCardState extends State<_QuizCard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              widget.title,
-                              style: const TextStyle(
-                                fontFamily: BwbTheme.fontFamily,
-                                fontSize: 15,
-                                fontWeight: FontWeight.bold,
-                                color: BwbTheme.text,
-                              ),
-                            ),
+                      // Title
+                      Text(
+                        widget.title,
+                        style: const TextStyle(
+                          fontFamily: BwbTheme.fontFamily,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: BwbTheme.text,
+                        ),
+                      ),
+                      // "Answer Key Available" badge — directly below title
+                      if (isPosted) ...[
+                        const SizedBox(height: 5),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFD1FAE5),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFF6EE7B7), width: 1),
                           ),
-                          if (isPosted)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFD1FAE5),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Text(
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.menu_book_rounded, size: 11, color: Color(0xFF047857)),
+                              SizedBox(width: 5),
+                              Text(
                                 'Answer Key Available',
                                 style: TextStyle(
                                   color: Color(0xFF047857),
-                                  fontSize: 10,
+                                  fontSize: 11,
                                   fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.2,
                                 ),
                               ),
-                            ),
-                        ],
-                      ),
+                            ],
+                          ),
+                        ),
+                      ],
                       if (widget.description.isNotEmpty) ...[
                         const SizedBox(height: 3),
                         Text(

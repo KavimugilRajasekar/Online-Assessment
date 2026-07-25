@@ -69,6 +69,18 @@ class QuestionCard extends StatelessWidget {
           const SizedBox(height: 8),
           // Question text
           Text(question.text, style: const TextStyle(fontSize: 16, height: 1.4)),
+          if (question.qtype == QuestionType.mcqMulti && !readOnly) ...[
+            const SizedBox(height: 6),
+            const Text(
+              'This question may have more than one correct option.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Color(0xFF059669),
+                fontWeight: FontWeight.w600,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
           // Code snippet (if any)
           if (question.code.isNotEmpty) ...[const SizedBox(height: 12), CodeBlockView(code: question.code)],
           const SizedBox(height: 16),

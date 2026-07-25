@@ -39,6 +39,8 @@ dependencies:
   shared_preferences: ^2.2.3
   uuid: ^4.4.0
   lottie: ^3.5.1
+  pdf: ^3.11.1
+  printing: ^5.13.1
 
 dev_dependencies:
   flutter_test:
