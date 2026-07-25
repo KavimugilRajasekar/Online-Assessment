@@ -33,6 +33,12 @@ class AttemptState extends ChangeNotifier {
   // Timer
   Timer? _timer;
   int remainingSeconds = 0;
+  // Frozen ONCE in _startTimer() when the attempt begins. Never recompute
+  // this later from attempt.deadlineDateTime/startedAtDateTime — those may
+  // legitimately change after the fact (violation penalties, server
+  // resync), and recomputing "total" from them mid-attempt is what caused
+  // the Review screen's bar to reset to remaining/remaining.
+  int totalSeconds = 0;
   bool _autoSubmitted = false;
 
   // Offline queue
@@ -93,8 +99,14 @@ class AttemptState extends ChangeNotifier {
     _timer?.cancel();
     if (attempt == null) return;
     final deadline = attempt!.deadlineDateTime;
+    final started = attempt!.startedAtDateTime;
     remainingSeconds = deadline.difference(DateTime.now().toUtc()).inSeconds;
     if (remainingSeconds < 0) remainingSeconds = 0;
+    // Freeze total duration ONE TIME here. This is the only place
+    // totalSeconds is ever set — it must never be recomputed later from
+    // live timestamps, or any screen that reads it after a violation
+    // penalty / resync will see a different "total" than an earlier screen did.
+    totalSeconds = deadline.difference(started).inSeconds.abs();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (remainingSeconds > 0) {
         remainingSeconds--;

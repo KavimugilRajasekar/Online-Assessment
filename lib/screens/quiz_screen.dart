@@ -260,9 +260,7 @@ class _QuizScreenState extends State<QuizScreen>
     }
 
     final questions = attempt.questions;
-    final deadlineDt = attempt.deadlineDateTime;
-    final startedDt = attempt.startedAtDateTime;
-    final totalSeconds = deadlineDt.difference(startedDt).inSeconds.abs();
+    final totalSeconds = attemptState.totalSeconds;
     final hasMultipleTopics = _topics.length > 1;
 
     return PopScope(
@@ -279,14 +277,14 @@ class _QuizScreenState extends State<QuizScreen>
               ? Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.article_outlined, color: Colors.black87),
+                      icon: const Icon(Icons.auto_awesome_mosaic_outlined, color: Colors.black87, size: 35),
                       onPressed: _showTopicSelectorPopUp,
                     ),
                     Expanded(
                       child: Text(
                         _topics[_activeTopicIndex].name,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
-                        maxLines: 2,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: Colors.black87),
+                        maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -637,8 +635,7 @@ class _QuizReviewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AttemptState>();
-    final attempt = state.attempt;
-    final totalSeconds = attempt != null ? attempt.deadlineDateTime.difference(attempt.startedAtDateTime).inSeconds.abs() : 0;
+    final totalSeconds = state.totalSeconds;
     int totalQs = 0;
     int totalAns = 0;
 
