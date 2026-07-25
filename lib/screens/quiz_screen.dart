@@ -110,14 +110,6 @@ class _QuizScreenState extends State<QuizScreen>
     return _topics.length - 1;
   }
 
-  /// Local index within topic from global index
-  int _localIndex(int globalIndex) {
-    int offset = 0;
-    for (int i = 0; i < _activeTopicIndex; i++) {
-      offset += _topics[i].questions.length;
-    }
-    return globalIndex - offset;
-  }
 
   @override
   void dispose() {
