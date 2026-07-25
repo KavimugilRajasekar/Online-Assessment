@@ -88,10 +88,16 @@ class _HomeScreenState extends State<HomeScreen>
                                   color: Colors.white.withValues(alpha: 0.15),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
-                                child: Image.asset(
-                                  'assets/icons/online_assessment_logo.png',
-                                  height: 32,
-                                  width: 32,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(
+                                    8,
+                                  ), // Adjust as needed
+                                  child: Image.asset(
+                                    'assets/icons/online_assessment_logo.png',
+                                    height: 32,
+                                    width: 32,
+                                    fit: BoxFit.cover,
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -178,25 +184,24 @@ class _HomeScreenState extends State<HomeScreen>
         children: [
           Lottie.asset('assets/json/searching.json', height: 140),
           const SizedBox(height: 12),
-          BwbCard(
-            borderColor: BwbTheme.wrong,
+          Center(
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 const Icon(
                   Icons.wifi_off_rounded,
                   color: BwbTheme.wrong,
-                  size: 28,
+                  size: 42,
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  'Could not load quizzes.\n${quizState.errorMessage}',
-                  style: const TextStyle(color: BwbTheme.wrong, fontSize: 13),
-                  textAlign: TextAlign.center,
+                const Text(
+                  'Could not load quizzes.',
+                  style: TextStyle(color: BwbTheme.wrong, fontSize: 14),
                 ),
-                const SizedBox(height: 12),
-                BwbButton(
-                  label: 'Retry',
+                const SizedBox(height: 1),
+                TextButton(
                   onPressed: () => context.read<QuizState>().loadQuizzes(),
+                  child: const Text('Retry'),
                 ),
               ],
             ),

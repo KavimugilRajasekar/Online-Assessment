@@ -166,12 +166,12 @@ class _QuizScreenState extends State<QuizScreen>
   }
 
   Future<bool> _onWillPop() async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Quiz is in progress! You cannot leave until submitted.'),
-        duration: Duration(seconds: 2),
-      ),
-    );
+    // ScaffoldMessenger.of(context).showSnackBar(
+    //   const SnackBar(
+    //     content: Text('Quiz is in progress! You cannot leave until submitted.'),
+    //     duration: Duration(seconds: 2),
+    //   ),
+    // );
     return false;
   }
 
@@ -211,7 +211,7 @@ class _QuizScreenState extends State<QuizScreen>
       Navigator.of(context).pushReplacementNamed('/result');
     } else {
       final msg = attemptState.errorMessage ?? 'Submit failed';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      // ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 
