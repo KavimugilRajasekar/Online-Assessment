@@ -8,6 +8,7 @@ import 'screens/topic_select_screen.dart';
 import 'screens/quiz_screen.dart';
 import 'screens/coding_screen.dart';
 import 'screens/result_screen.dart';
+import 'screens/answers_screen.dart';
 
 class OnlineAssessmentApp extends StatelessWidget {
   const OnlineAssessmentApp({super.key});
@@ -30,6 +31,10 @@ class OnlineAssessmentApp extends StatelessWidget {
           '/quiz': (_) => const QuizScreen(),
           '/coding': (_) => const CodingScreen(),
           '/result': (_) => const ResultScreen(),
+          '/answers': (ctx) {
+            final args = ModalRoute.of(ctx)!.settings.arguments as Map<String, String>;
+            return AnswersScreen(quizId: args['quizId']!, quizTitle: args['quizTitle']!);
+          },
         },
       ),
     );

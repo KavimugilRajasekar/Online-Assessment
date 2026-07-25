@@ -22,6 +22,8 @@ class Question {
   final String starterCode;
   final String language;
   final String explanation;
+  final String topicId;
+  final String topicName;
 
   const Question({
     required this.id,
@@ -33,6 +35,8 @@ class Question {
     required this.starterCode,
     required this.language,
     required this.explanation,
+    this.topicId = '',
+    this.topicName = '',
   });
 
   factory Question.fromJson(Map<String, dynamic> json) => Question(
@@ -50,5 +54,7 @@ class Question {
         starterCode: (json['starter_code'] ?? '').toString(),
         language: (json['language'] ?? '').toString(),
         explanation: (json['explanation'] ?? '').toString(),
+        topicId: (json['topic_id'] ?? '').toString(),
+        topicName: (json['topic_name'] ?? '').toString(),
       );
 }

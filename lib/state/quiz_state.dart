@@ -12,16 +12,22 @@ class QuizState extends ChangeNotifier {
   QuizLoadState loadState = QuizLoadState.idle;
   String? errorMessage;
 
-  Future<void> loadQuizzes() async {
-    loadState = QuizLoadState.loading;
-    errorMessage = null;
-    notifyListeners();
+  Future<void> loadQuizzes({bool silent = false}) async {
+    if (!silent && quizzes.isEmpty) {
+      loadState = QuizLoadState.loading;
+      errorMessage = null;
+      notifyListeners();
+    }
     try {
-      quizzes = await QuizService.instance.listQuizzes();
+      final fresh = await QuizService.instance.listQuizzes();
+      quizzes = fresh;
       loadState = QuizLoadState.loaded;
+      errorMessage = null;
     } catch (e) {
-      loadState = QuizLoadState.error;
-      errorMessage = e.toString();
+      if (quizzes.isEmpty) {
+        loadState = QuizLoadState.error;
+        errorMessage = e.toString();
+      }
     }
     notifyListeners();
   }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
@@ -16,6 +17,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   late final AnimationController _fadeController;
   late final Animation<double> _fadeAnimation;
+  Timer? _pollTimer;
 
   @override
   void initState() {
@@ -23,13 +25,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _fadeController = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
     _fadeAnimation = CurvedAnimation(parent: _fadeController, curve: Curves.easeIn);
     _fadeController.forward();
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<QuizState>().loadQuizzes();
+    });
+
+    // Background polling timer every 3 seconds
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (mounted) {
+        context.read<QuizState>().loadQuizzes(silent: true);
+      }
     });
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _fadeController.dispose();
     super.dispose();
   }
@@ -233,8 +244,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               mins: mins,
               answersPosted: quiz.answersPosted,
               onTap: () {
-                context.read<QuizState>().selectQuiz(quiz);
-                Navigator.of(context).pushNamed('/topics');
+                if (quiz.answersPosted) {
+                  Navigator.of(context).pushNamed(
+                    '/answers',
+                    arguments: {'quizId': quiz.id, 'quizTitle': quiz.title},
+                  );
+                } else {
+                  context.read<QuizState>().selectQuiz(quiz);
+                  Navigator.of(context).pushNamed('/topics');
+                }
               },
             );
           },
