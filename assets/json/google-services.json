@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "167301903277",
+    "project_id": "minicoloud",
+    "storage_bucket": "minicoloud.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:167301903277:android:bc768c97e211fb7cf96724",
+        "android_client_info": {
+          "package_name": "com.example.saengil_alrim"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB9mMQgNpsRtMMzeD2s6puAi7sldGjsK_s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
