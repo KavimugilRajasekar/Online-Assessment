@@ -14,7 +14,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _fadeController;
   late final Animation<double> _fadeAnimation;
   Timer? _pollTimer;
@@ -22,8 +23,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _fadeController = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
-    _fadeAnimation = CurvedAnimation(parent: _fadeController, curve: Curves.easeIn);
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeIn,
+    );
     _fadeController.forward();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -137,9 +144,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               // Content
               SliverPadding(
                 padding: const EdgeInsets.all(20),
-                sliver: SliverToBoxAdapter(
-                  child: _buildBody(quizState),
-                ),
+                sliver: SliverToBoxAdapter(child: _buildBody(quizState)),
               ),
             ],
           ),
@@ -156,9 +161,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Lottie.asset('assets/json/cat_cloud.json', height: 100),
+              Lottie.asset('assets/json/searching.json', height: 100),
               const SizedBox(height: 12),
-              const Text('Loading quizzes...', style: TextStyle(color: BwbTheme.muted)),
+              const Text(
+                'Loading quizzes...',
+                style: TextStyle(color: BwbTheme.muted),
+              ),
             ],
           ),
         ),
@@ -168,13 +176,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     if (quizState.loadState == QuizLoadState.error) {
       return Column(
         children: [
-          Lottie.asset('assets/json/cat_cloud.json', height: 140),
+          Lottie.asset('assets/json/searching.json', height: 140),
           const SizedBox(height: 12),
           BwbCard(
             borderColor: BwbTheme.wrong,
             child: Column(
               children: [
-                const Icon(Icons.wifi_off_rounded, color: BwbTheme.wrong, size: 28),
+                const Icon(
+                  Icons.wifi_off_rounded,
+                  color: BwbTheme.wrong,
+                  size: 28,
+                ),
                 const SizedBox(height: 8),
                 Text(
                   'Could not load quizzes.\n${quizState.errorMessage}',
@@ -196,7 +208,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     if (quizState.quizzes.isEmpty) {
       return Column(
         children: [
-          Lottie.asset('assets/json/cat_cloud.json', height: 130),
+          Lottie.asset('assets/json/searching.json', height: 130),
           const SizedBox(height: 16),
           const BwbCard(
             child: Column(
@@ -292,7 +304,9 @@ class _QuizCardState extends State<_QuizCard> {
   Widget build(BuildContext context) {
     final isPosted = widget.answersPosted;
     final cardBg = isPosted ? const Color(0xFFECFDF5) : Colors.white;
-    final borderSide = isPosted ? Border.all(color: const Color(0xFFa7f3d0), width: 1.5) : null;
+    final borderSide = isPosted
+        ? Border.all(color: const Color(0xFFa7f3d0), width: 1.5)
+        : null;
     final iconGradient = isPosted
         ? const LinearGradient(colors: [Color(0xFF059669), Color(0xFF10B981)])
         : const LinearGradient(colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)]);
@@ -357,16 +371,26 @@ class _QuizCardState extends State<_QuizCard> {
                       if (isPosted) ...[
                         const SizedBox(height: 5),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: const Color(0xFFD1FAE5),
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: const Color(0xFF6EE7B7), width: 1),
+                            border: Border.all(
+                              color: const Color(0xFF6EE7B7),
+                              width: 1,
+                            ),
                           ),
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.menu_book_rounded, size: 11, color: Color(0xFF047857)),
+                              Icon(
+                                Icons.menu_book_rounded,
+                                size: 11,
+                                color: Color(0xFF047857),
+                              ),
                               SizedBox(width: 5),
                               Text(
                                 'Answer Key Available',
@@ -385,15 +409,24 @@ class _QuizCardState extends State<_QuizCard> {
                         const SizedBox(height: 3),
                         Text(
                           widget.description,
-                          style: const TextStyle(color: BwbTheme.muted, fontSize: 12),
+                          style: const TextStyle(
+                            color: BwbTheme.muted,
+                            fontSize: 12,
+                          ),
                         ),
                       ],
                       const SizedBox(height: 8),
                       Wrap(
                         spacing: 8,
                         children: [
-                          _Chip(icon: Icons.topic_outlined, label: '${widget.topicCount} Topics'),
-                          _Chip(icon: Icons.timer_outlined, label: '${widget.mins} min'),
+                          _Chip(
+                            icon: Icons.topic_outlined,
+                            label: '${widget.topicCount} Topics',
+                          ),
+                          _Chip(
+                            icon: Icons.timer_outlined,
+                            label: '${widget.mins} min',
+                          ),
                         ],
                       ),
                     ],
@@ -432,7 +465,14 @@ class _Chip extends StatelessWidget {
         children: [
           Icon(icon, size: 11, color: BwbTheme.primary),
           const SizedBox(width: 4),
-          Text(label, style: const TextStyle(fontSize: 11, color: BwbTheme.primary, fontWeight: FontWeight.w600)),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              color: BwbTheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
