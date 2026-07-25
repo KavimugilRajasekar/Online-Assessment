@@ -341,23 +341,6 @@ class _QuizCardState extends State<_QuizCard> {
             padding: const EdgeInsets.all(18),
             child: Row(
               children: [
-                // Index badge
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    gradient: iconGradient,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Center(
-                    child: Icon(
-                      isPosted ? Icons.menu_book_rounded : Icons.quiz_rounded,
-                      color: Colors.white,
-                      size: 24,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

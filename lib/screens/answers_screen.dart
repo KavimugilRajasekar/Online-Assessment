@@ -556,18 +556,18 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
                         ),
                       ),
                     ),
-                    if (_quizDescription.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 44),
-                        child: Text(
-                          _quizDescription,
-                          style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.8), fontSize: 12),
-                          softWrap: true,
-                        ),
-                      ),
-                    ],
+                    // if (_quizDescription.isNotEmpty) ...[
+                    //   const SizedBox(height: 6),
+                    //   Padding(
+                    //     padding: const EdgeInsets.only(left: 44),
+                    //     child: Text(
+                    //       _quizDescription,
+                    //       style: TextStyle(
+                    //           color: Colors.white.withValues(alpha: 0.8), fontSize: 12),
+                    //       softWrap: true,
+                    //     ),
+                    //   ),
+                    // ],
                   ],
                 ),
               ),

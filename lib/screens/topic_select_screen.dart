@@ -86,7 +86,9 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
         }
       }
       // If no local attempt saved, start/resume attempt to view answer details
-      final attempt = await AttemptService.instance.startOrResumeAttempt(quiz.id);
+      final attempt = await AttemptService.instance.startOrResumeAttempt(
+        quiz.id,
+      );
       if (mounted) {
         context.read<AttemptState>().setAttempt(attempt);
         Navigator.of(context).pushNamed('/quiz');
@@ -110,7 +112,10 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
   Widget build(BuildContext context) {
     final quizState = context.watch<QuizState>();
     final quiz = quizState.selectedQuiz;
-    final totalQuestions = quizState.topics.fold<int>(0, (sum, t) => sum + t.questionCount);
+    final totalQuestions = quizState.topics.fold<int>(
+      0,
+      (sum, t) => sum + t.questionCount,
+    );
     final durationMins = quiz != null ? quiz.durationSeconds ~/ 60 : 0;
 
     return Scaffold(
@@ -134,12 +139,17 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
                         children: [
                           // Back button row
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
                             child: Row(
                               children: [
                                 IconButton(
-                                  icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                                      color: Colors.white),
+                                  icon: const Icon(
+                                    Icons.arrow_back_ios_new_rounded,
+                                    color: Colors.white,
+                                  ),
                                   onPressed: () => Navigator.of(context).pop(),
                                 ),
                                 Expanded(
@@ -176,11 +186,20 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                _StatChip(icon: Icons.timer_outlined, label: '$durationMins min'),
+                                _StatChip(
+                                  icon: Icons.timer_outlined,
+                                  label: '$durationMins min',
+                                ),
                                 const SizedBox(width: 12),
-                                _StatChip(icon: Icons.quiz_outlined, label: '$totalQuestions Qs'),
+                                _StatChip(
+                                  icon: Icons.quiz_outlined,
+                                  label: '$totalQuestions Qs',
+                                ),
                                 const SizedBox(width: 12),
-                                _StatChip(icon: Icons.lock_clock_outlined, label: 'Strict Mode'),
+                                _StatChip(
+                                  icon: Icons.lock_clock_outlined,
+                                  label: 'Strict Mode',
+                                ),
                               ],
                             ),
                           ),
@@ -214,8 +233,8 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
                                   ),
                                   validator: (val) =>
                                       val == null || val.trim().isEmpty
-                                          ? 'Please enter your name'
-                                          : null,
+                                      ? 'Please enter your name'
+                                      : null,
                                 ),
                                 const SizedBox(height: 14),
                                 TextFormField(
@@ -226,8 +245,8 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
                                   ),
                                   validator: (val) =>
                                       val == null || val.trim().isEmpty
-                                          ? 'Please enter Roll No or Email'
-                                          : null,
+                                      ? 'Please enter Roll No or Email'
+                                      : null,
                                 ),
                               ],
                             ),
@@ -241,10 +260,26 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
                             padding: const EdgeInsets.all(18),
                             child: Column(
                               children: [
-                                _Instruction(number: '1', text: 'One question is shown at a time. Navigate using arrows.'),
-                                _Instruction(number: '2', text: 'For MCQs, select your answer. For coding, write your solution.'),
-                                _Instruction(number: '3', text: 'Click "Submit Quiz" on the final question to record your score.'),
-                                _Instruction(number: '4', text: 'Do NOT exit or minimize the app during the assessment.'),
+                                _Instruction(
+                                  number: '1',
+                                  text:
+                                      'Do NOT switch to other applications, browser tabs, or windows during the assessment.',
+                                ),
+                                _Instruction(
+                                  number: '2',
+                                  text:
+                                      'Do NOT minimize, close, or refresh the application while the assessment is in progress.',
+                                ),
+                                _Instruction(
+                                  number: '3',
+                                  text:
+                                      'Do NOT use mobile phones, AI tools, search engines, or any unauthorized resources.',
+                                ),
+                                _Instruction(
+                                  number: '4',
+                                  text:
+                                      'Any attempt to leave the assessment screen or violate these rules may result in automatic submission or disqualification.',
+                                ),
                               ],
                             ),
                           ),
@@ -254,44 +289,58 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
                           if (quizState.topics.isNotEmpty) ...[
                             _SectionLabel(label: 'Topics Covered'),
                             const SizedBox(height: 10),
-                            ...quizState.topics.map((topic) => Padding(
-                              padding: const EdgeInsets.only(bottom: 8.0),
-                              child: BwbCard(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 8,
-                                      height: 8,
-                                      decoration: const BoxDecoration(
-                                        color: BwbTheme.primary,
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Text(topic.name,
-                                          style: const TextStyle(fontWeight: FontWeight.w600)),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFEFF6FF),
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: Text(
-                                        '${topic.questionCount} Qs',
-                                        style: const TextStyle(
-                                          fontSize: 12,
+                            ...quizState.topics.map(
+                              (topic) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8.0),
+                                child: BwbCard(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 8,
+                                        height: 8,
+                                        decoration: const BoxDecoration(
                                           color: BwbTheme.primary,
-                                          fontWeight: FontWeight.w600,
+                                          shape: BoxShape.circle,
                                         ),
                                       ),
-                                    ),
-                                  ],
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          topic.name,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEFF6FF),
+                                          borderRadius: BorderRadius.circular(
+                                            20,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          '${topic.questionCount} Qs',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: BwbTheme.primary,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            )),
+                            ),
                             const SizedBox(height: 8),
                           ],
 
@@ -309,8 +358,12 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
                                     )
                                   : BwbButton(
                                       key: ValueKey(_starting),
-                                      label: _starting ? 'Starting...' : 'Start Assessment',
-                                      onPressed: _starting ? null : () => _startQuiz(quiz),
+                                      label: _starting
+                                          ? 'Starting...'
+                                          : 'Start Assessment',
+                                      onPressed: _starting
+                                          ? null
+                                          : () => _startQuiz(quiz),
                                     ),
                             ),
                           ),
@@ -389,8 +442,14 @@ class _Instruction extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(text,
-                style: const TextStyle(fontSize: 13, color: BwbTheme.muted, height: 1.5)),
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 13,
+                color: BwbTheme.muted,
+                height: 1.5,
+              ),
+            ),
           ),
         ],
       ),
