@@ -27,6 +27,8 @@ class AttemptState extends ChangeNotifier {
   final Map<String, List<String>> selectedChoices = {};
   // question_id -> code text (for coding)
   final Map<String, String> codeAnswers = {};
+  // Flagged questions set
+  final Set<String> flaggedQuestions = {};
 
   // Timer
   Timer? _timer;
@@ -45,10 +47,24 @@ class AttemptState extends ChangeNotifier {
   bool get isSubmitBlocked => _queue.isNotEmpty || submitState == SubmitState.submitting;
   bool get hasActiveAttempt => attempt != null && attempt!.status == AttemptStatus.inProgress;
 
+  void toggleFlagged(String questionId) {
+    if (flaggedQuestions.contains(questionId)) {
+      flaggedQuestions.remove(questionId);
+    } else {
+      flaggedQuestions.add(questionId);
+    }
+    notifyListeners();
+  }
+
   void recordViolation(String reason) {
     if (!hasActiveAttempt) return;
     violationCount++;
     lastViolationReason = reason;
+
+    // Deduct 1/6th of total quiz duration (suspended penalty)
+    final penaltySeconds = (remainingSeconds > 0) ? (remainingSeconds ~/ 6) : 30;
+    remainingSeconds = (remainingSeconds - (penaltySeconds > 0 ? penaltySeconds : 30)).clamp(0, remainingSeconds);
+
     notifyListeners();
     if (violationCount >= maxViolations && !_autoSubmitted) {
       _autoSubmitted = true;
@@ -65,6 +81,7 @@ class AttemptState extends ChangeNotifier {
     lastViolationReason = null;
     selectedChoices.clear();
     codeAnswers.clear();
+    flaggedQuestions.clear();
     currentQuestionIndex = 0;
 
     // Restore any existing answers from the attempt detail (if resumed)

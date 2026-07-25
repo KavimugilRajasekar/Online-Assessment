@@ -7,6 +7,8 @@ class Quiz {
   final bool shuffleChoices;
   final int topicCount;
 
+  final bool answersPosted;
+
   const Quiz({
     required this.id,
     required this.title,
@@ -15,6 +17,7 @@ class Quiz {
     required this.shuffleQuestions,
     required this.shuffleChoices,
     required this.topicCount,
+    this.answersPosted = false,
   });
 
   factory Quiz.fromJson(Map<String, dynamic> json) => Quiz(
@@ -25,5 +28,6 @@ class Quiz {
         shuffleQuestions: (json['shuffle_questions'] as bool?) ?? true,
         shuffleChoices: (json['shuffle_choices'] as bool?) ?? true,
         topicCount: (json['topic_count'] as int?) ?? 0,
+        answersPosted: (json['answers_posted'] as bool?) ?? false,
       );
 }

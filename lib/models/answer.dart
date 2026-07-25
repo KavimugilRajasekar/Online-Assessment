@@ -13,15 +13,21 @@ class Answer {
     required this.marksAwarded,
   });
 
-  factory Answer.fromJson(Map<String, dynamic> json) => Answer(
-        questionId: (json['question_id'] ?? json['question'] ?? '') as String,
-        selectedChoiceIds: ((json['selected_choice_ids'] as List?) ?? [])
-            .map((e) => e as String)
-            .toList(),
-        codeText: (json['code_text'] as String?) ?? '',
-        isCorrect: json['is_correct'] as bool?,
-        marksAwarded: ((json['marks_awarded']) as num? ?? 0).toDouble(),
-      );
+  factory Answer.fromJson(Map<String, dynamic> json) {
+    final qIdRaw = json['question_id'] ?? json['question'];
+    final String qId = qIdRaw is String
+        ? qIdRaw
+        : (qIdRaw is Map ? (qIdRaw['id']?.toString() ?? '') : '');
+    return Answer(
+      questionId: qId,
+      selectedChoiceIds: ((json['selected_choice_ids'] as List?) ?? [])
+          .map((e) => e.toString())
+          .toList(),
+      codeText: (json['code_text'] as String?) ?? '',
+      isCorrect: json['is_correct'] as bool?,
+      marksAwarded: ((json['marks_awarded']) as num? ?? 0).toDouble(),
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'question_id': questionId,

@@ -6,8 +6,8 @@ class Choice {
   const Choice({required this.id, required this.text, this.isCorrect});
 
   factory Choice.fromJson(Map<String, dynamic> json) => Choice(
-        id: json['id'] as String,
-        text: json['text'] as String,
+        id: (json['id'] ?? '').toString(),
+        text: (json['text'] ?? '').toString(),
         isCorrect: json['is_correct'] as bool?,
       );
 }

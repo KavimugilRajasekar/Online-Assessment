@@ -30,13 +30,35 @@ class QuestionCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Question number + marks
+          // Question number + flag button + marks
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Q${index + 1}',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              Row(
+                children: [
+                  Text(
+                    'Q${index + 1}',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  if (!readOnly) ...[
+                    const SizedBox(width: 12),
+                    IconButton(
+                      icon: Icon(
+                        state.flaggedQuestions.contains(question.id)
+                            ? Icons.flag
+                            : Icons.flag_outlined,
+                        color: state.flaggedQuestions.contains(question.id)
+                            ? Colors.orange
+                            : BwbTheme.muted,
+                        size: 22,
+                      ),
+                      onPressed: () {
+                        context.read<AttemptState>().toggleFlagged(question.id);
+                      },
+                      tooltip: 'Flag Question',
+                    ),
+                  ],
+                ],
               ),
               Text(
                 '${question.marks.toStringAsFixed(question.marks.truncateToDouble() == question.marks ? 0 : 1)} mark${question.marks != 1 ? 's' : ''}',

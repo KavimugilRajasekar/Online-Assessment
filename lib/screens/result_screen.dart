@@ -3,10 +3,7 @@ import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 import '../models/question.dart';
 import '../models/result.dart';
-import '../services/attempt_service.dart';
-import '../services/attempt_store.dart';
 import '../state/attempt_state.dart';
-import '../state/quiz_state.dart';
 import '../theme.dart';
 import '../widgets/bwb_button.dart';
 import '../widgets/code_block_view.dart';
@@ -21,7 +18,6 @@ class ResultScreen extends StatefulWidget {
 class _ResultScreenState extends State<ResultScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _lottieController;
-  bool _showContent = false;
 
   @override
   void initState() {
@@ -95,7 +91,6 @@ class _ResultScreenState extends State<ResultScreen>
                               ..duration = composition.duration
                               ..forward().whenComplete(() {
                                 if (mounted) {
-                                  setState(() => _showContent = true);
                                   _lottieController.repeat(
                                       min: 0.7, max: 1.0, reverse: true);
                                 }

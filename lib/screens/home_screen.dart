@@ -111,7 +111,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           Text(
                             'Select a quiz below to begin your assessment.',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
+                              color: Colors.white.withValues(alpha: 0.8),
                               fontSize: 14,
                             ),
                             textAlign: TextAlign.center,
@@ -221,7 +221,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: quizState.quizzes.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          separatorBuilder: (_, _) => const SizedBox(height: 12),
           itemBuilder: (context, i) {
             final quiz = quizState.quizzes[i];
             final mins = quiz.durationSeconds ~/ 60;
@@ -231,6 +231,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               description: quiz.description,
               topicCount: quiz.topicCount,
               mins: mins,
+              answersPosted: quiz.answersPosted,
               onTap: () {
                 context.read<QuizState>().selectQuiz(quiz);
                 Navigator.of(context).pushNamed('/topics');
@@ -249,6 +250,7 @@ class _QuizCard extends StatefulWidget {
   final String description;
   final int topicCount;
   final int mins;
+  final bool answersPosted;
   final VoidCallback onTap;
 
   const _QuizCard({
@@ -257,6 +259,7 @@ class _QuizCard extends StatefulWidget {
     required this.description,
     required this.topicCount,
     required this.mins,
+    required this.answersPosted,
     required this.onTap,
   });
 
@@ -269,20 +272,29 @@ class _QuizCardState extends State<_QuizCard> {
 
   @override
   Widget build(BuildContext context) {
+    final isPosted = widget.answersPosted;
+    final cardBg = isPosted ? const Color(0xFFECFDF5) : Colors.white;
+    final borderSide = isPosted ? Border.all(color: const Color(0xFFa7f3d0), width: 1.5) : null;
+    final iconGradient = isPosted
+        ? const LinearGradient(colors: [Color(0xFF059669), Color(0xFF10B981)])
+        : const LinearGradient(colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)]);
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
+        border: borderSide,
         boxShadow: [
           BoxShadow(
-            color: BwbTheme.primary.withValues(alpha: _hovered ? 0.18 : 0.06),
+            color: (isPosted ? const Color(0xFF10B981) : BwbTheme.primary)
+                .withValues(alpha: _hovered ? 0.18 : 0.06),
             blurRadius: _hovered ? 18 : 8,
             offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Material(
-        color: Colors.white,
+        color: cardBg,
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
@@ -297,21 +309,14 @@ class _QuizCardState extends State<_QuizCard> {
                   width: 46,
                   height: 46,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                    gradient: iconGradient,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Center(
-                    child: Text(
-                      '${widget.index + 1}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
+                    child: Icon(
+                      isPosted ? Icons.menu_book_rounded : Icons.quiz_rounded,
+                      color: Colors.white,
+                      size: 24,
                     ),
                   ),
                 ),
@@ -320,14 +325,36 @@ class _QuizCardState extends State<_QuizCard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        widget.title,
-                        style: const TextStyle(
-                          fontFamily: BwbTheme.fontFamily,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: BwbTheme.text,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.title,
+                              style: const TextStyle(
+                                fontFamily: BwbTheme.fontFamily,
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                color: BwbTheme.text,
+                              ),
+                            ),
+                          ),
+                          if (isPosted)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFD1FAE5),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Text(
+                                'Answer Key Available',
+                                style: TextStyle(
+                                  color: Color(0xFF047857),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                       if (widget.description.isNotEmpty) ...[
                         const SizedBox(height: 3),
@@ -350,7 +377,11 @@ class _QuizCardState extends State<_QuizCard> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: BwbTheme.primary),
+                Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 16,
+                  color: isPosted ? const Color(0xFF059669) : BwbTheme.primary,
+                ),
               ],
             ),
           ),

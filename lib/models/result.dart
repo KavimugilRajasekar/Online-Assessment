@@ -7,10 +7,23 @@ class AnswerResult {
 
   const AnswerResult({required this.question, required this.answer});
 
-  factory AnswerResult.fromJson(Map<String, dynamic> json) => AnswerResult(
-        question: Question.fromJson(json['question'] as Map<String, dynamic>),
-        answer: Answer.fromJson(json),
-      );
+  factory AnswerResult.fromJson(Map<String, dynamic> json) {
+    final answerJson = json['answer'] is Map<String, dynamic>
+        ? json['answer'] as Map<String, dynamic>
+        : (json['answer'] is Map
+            ? Map<String, dynamic>.from(json['answer'] as Map)
+            : json);
+    final questionJson = json['question'] is Map<String, dynamic>
+        ? json['question'] as Map<String, dynamic>
+        : (json['question'] is Map
+            ? Map<String, dynamic>.from(json['question'] as Map)
+            : <String, dynamic>{});
+
+    return AnswerResult(
+      question: Question.fromJson(questionJson),
+      answer: Answer.fromJson(answerJson),
+    );
+  }
 }
 
 class QuizResult {
@@ -33,14 +46,17 @@ class QuizResult {
   });
 
   factory QuizResult.fromJson(Map<String, dynamic> json) => QuizResult(
-        id: json['id'] as String,
-        quizId: (json['quiz_id'] ?? '') as String,
-        status: (json['status'] as String?) ?? '',
+        id: (json['id'] ?? '').toString(),
+        quizId: (json['quiz_id'] ?? json['quiz'] ?? '').toString(),
+        status: (json['status'] ?? '').toString(),
         totalMarks: ((json['total_marks']) as num? ?? 0).toDouble(),
         score: ((json['score']) as num? ?? 0).toDouble(),
-        submittedAt: json['submitted_at'] as String?,
+        submittedAt: json['submitted_at']?.toString(),
         answers: ((json['answers'] as List?) ?? [])
-            .map((a) => AnswerResult.fromJson(a as Map<String, dynamic>))
+            .map((a) => AnswerResult.fromJson(
+                a is Map<String, dynamic>
+                    ? a
+                    : (a is Map ? Map<String, dynamic>.from(a) : <String, dynamic>{})))
             .toList(),
       );
 }

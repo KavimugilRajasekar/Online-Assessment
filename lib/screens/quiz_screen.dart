@@ -72,14 +72,6 @@ class _QuizScreenState extends State<QuizScreen> with WidgetsBindingObserver {
     // Auto-submit is handled inside AttemptState.recordViolation()
   }
 
-  Future<void> _autoSubmitOnViolation() async {
-    final attemptState = context.read<AttemptState>();
-    await attemptState.submit();
-    if (mounted) {
-      Navigator.of(context).pushReplacementNamed('/result');
-    }
-  }
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     LockdownService.instance.handleLifecycleState(state);
@@ -226,6 +218,17 @@ class _QuizScreenState extends State<QuizScreen> with WidgetsBindingObserver {
                 (state.selectedChoices[question.id]?.isNotEmpty ?? false) ||
                 (state.codeAnswers[question.id]?.isNotEmpty ?? false);
             final isCurrent = i == state.currentQuestionIndex;
+            final isFlagged = state.flaggedQuestions.contains(question.id);
+
+            Color bgColor;
+            if (isCurrent) {
+              bgColor = Colors.black;
+            } else if (hasAnswer) {
+              bgColor = const Color(0xFFDCFCE7); // Light Green for attended
+            } else {
+              bgColor = Colors.white; // Empty for unvisited/unattended
+            }
+
             return GestureDetector(
               onTap: () {
                 _pageController.animateToPage(
@@ -234,30 +237,44 @@ class _QuizScreenState extends State<QuizScreen> with WidgetsBindingObserver {
                   curve: Curves.easeInOut,
                 );
               },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: isCurrent
-                      ? Colors.black
-                      : (hasAnswer ? const Color(0xFFE0E0E0) : Colors.white),
-                  border: Border.all(
-                    color: Colors.black,
-                    width: isCurrent ? 2 : 1,
-                  ),
-                ),
-                child: Center(
-                  child: Text(
-                    '${i + 1}',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: isCurrent ? Colors.white : Colors.black,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: bgColor,
+                      border: Border.all(
+                        color: isFlagged
+                            ? Colors.orange
+                            : (hasAnswer ? const Color(0xFF16A34A) : Colors.black45),
+                        width: isCurrent ? 2.5 : (isFlagged ? 2 : 1),
+                      ),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${i + 1}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: isCurrent
+                              ? Colors.white
+                              : (hasAnswer ? const Color(0xFF15803D) : Colors.black87),
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  if (isFlagged)
+                    const Positioned(
+                      top: -4,
+                      right: 0,
+                      child: Icon(Icons.flag, size: 12, color: Colors.orange),
+                    ),
+                ],
               ),
             );
           }),

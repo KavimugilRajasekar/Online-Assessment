@@ -36,16 +36,19 @@ class Question {
   });
 
   factory Question.fromJson(Map<String, dynamic> json) => Question(
-        id: json['id'] as String,
-        qtype: parseQType(json['qtype'] as String),
-        text: json['text'] as String,
-        code: (json['code'] as String?) ?? '',
-        marks: ((json['marks']) as num).toDouble(),
+        id: (json['id'] ?? '').toString(),
+        qtype: parseQType((json['qtype'] ?? '').toString()),
+        text: (json['text'] ?? '').toString(),
+        code: (json['code'] ?? '').toString(),
+        marks: ((json['marks']) as num? ?? 0).toDouble(),
         choices: ((json['choices'] as List?) ?? [])
-            .map((c) => Choice.fromJson(c as Map<String, dynamic>))
+            .map((c) => Choice.fromJson(
+                c is Map<String, dynamic>
+                    ? c
+                    : (c is Map ? Map<String, dynamic>.from(c) : <String, dynamic>{})))
             .toList(),
-        starterCode: (json['starter_code'] as String?) ?? '',
-        language: (json['language'] as String?) ?? '',
-        explanation: (json['explanation'] as String?) ?? '',
+        starterCode: (json['starter_code'] ?? '').toString(),
+        language: (json['language'] ?? '').toString(),
+        explanation: (json['explanation'] ?? '').toString(),
       );
 }

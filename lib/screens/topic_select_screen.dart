@@ -73,6 +73,39 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
     }
   }
 
+  Future<void> _viewAnswerKey(Quiz quiz) async {
+    setState(() => _starting = true);
+    try {
+      final savedAttemptId = await AttemptStore.instance.get(quiz.id);
+      if (savedAttemptId != null) {
+        final result = await AttemptService.instance.getResult(savedAttemptId);
+        if (mounted) {
+          context.read<AttemptState>().result = result;
+          Navigator.of(context).pushNamed('/result');
+          return;
+        }
+      }
+      // If no local attempt saved, start/resume attempt to view answer details
+      final attempt = await AttemptService.instance.startOrResumeAttempt(quiz.id);
+      if (mounted) {
+        context.read<AttemptState>().setAttempt(attempt);
+        Navigator.of(context).pushNamed('/quiz');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Answer Key Notice: $e'),
+            backgroundColor: BwbTheme.primary,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final quizState = context.watch<QuizState>();
@@ -265,16 +298,22 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
                           ],
 
                           const SizedBox(height: 8),
-                          // Start button
+                          // Start or View Answer Key button
                           SizedBox(
                             width: double.infinity,
                             child: AnimatedSwitcher(
                               duration: const Duration(milliseconds: 200),
-                              child: BwbButton(
-                                key: ValueKey(_starting),
-                                label: _starting ? 'Starting...' : 'Start Assessment',
-                                onPressed: _starting ? null : () => _startQuiz(quiz),
-                              ),
+                              child: quiz.answersPosted
+                                  ? BwbButton(
+                                      key: const ValueKey('view_answers'),
+                                      label: 'View Answer Key & Report',
+                                      onPressed: () => _viewAnswerKey(quiz),
+                                    )
+                                  : BwbButton(
+                                      key: ValueKey(_starting),
+                                      label: _starting ? 'Starting...' : 'Start Assessment',
+                                      onPressed: _starting ? null : () => _startQuiz(quiz),
+                                    ),
                             ),
                           ),
                           const SizedBox(height: 20),

@@ -8,10 +8,11 @@ class AttemptService {
 
   Future<Attempt> startAttempt(String quizId, {String? candidateName, String? candidateId}) async {
     final data = await ApiClient.instance.post('/api/quizzes/$quizId/attempts/', {
-      'candidate_name': ?candidateName,
-      'candidate_id': ?candidateId,
+      'candidate_name': candidateName,
+      'candidate_id': candidateId,
     });
-    return Attempt.fromJson(data as Map<String, dynamic>);
+    return Attempt.fromJson(
+        data is Map<String, dynamic> ? data : Map<String, dynamic>.from(data as Map));
   }
 
   /// Returns existing attempt on 409.
@@ -20,8 +21,10 @@ class AttemptService {
       return await startAttempt(quizId, candidateName: candidateName, candidateId: candidateId);
     } on ApiException catch (e) {
       if (e.statusCode == 409) {
-        final attemptData = e.body?['attempt'] as Map<String, dynamic>?;
-        if (attemptData != null) return Attempt.fromJson(attemptData);
+        final attemptData = e.body?['attempt'];
+        if (attemptData is Map) {
+          return Attempt.fromJson(Map<String, dynamic>.from(attemptData));
+        }
       }
       rethrow;
     }
@@ -29,7 +32,8 @@ class AttemptService {
 
   Future<Attempt> getAttempt(String attemptId) async {
     final data = await ApiClient.instance.get('/api/attempts/$attemptId/');
-    return Attempt.fromJson(data as Map<String, dynamic>);
+    return Attempt.fromJson(
+        data is Map<String, dynamic> ? data : Map<String, dynamic>.from(data as Map));
   }
 
   /// Returns true on success (204), throws on error.
@@ -51,20 +55,26 @@ class AttemptService {
       // 204 No Content — fetch result separately
       return getResult(attemptId);
     }
-    if (data is Map<String, dynamic>) {
+    if (data is Map) {
+      final mapData = data is Map<String, dynamic>
+          ? data
+          : Map<String, dynamic>.from(data);
       // Try direct parse
-      if (data.containsKey('id') || data.containsKey('score')) {
-        return QuizResult.fromJson(data);
+      if (mapData.containsKey('id') || mapData.containsKey('score')) {
+        return QuizResult.fromJson(mapData);
       }
       // Wrapped response — try common envelope keys
       for (final key in ['result', 'attempt', 'data']) {
-        final inner = data[key];
-        if (inner is Map<String, dynamic>) {
-          return QuizResult.fromJson(inner);
+        final inner = mapData[key];
+        if (inner is Map) {
+          final innerMap = inner is Map<String, dynamic>
+              ? inner
+              : Map<String, dynamic>.from(inner);
+          return QuizResult.fromJson(innerMap);
         }
       }
       // Still a map but no recognised structure — best effort
-      return QuizResult.fromJson(data);
+      return QuizResult.fromJson(mapData);
     }
     // Unexpected type — fall back to fetching the result
     return getResult(attemptId);
@@ -72,6 +82,7 @@ class AttemptService {
 
   Future<QuizResult> getResult(String attemptId) async {
     final data = await ApiClient.instance.get('/api/attempts/$attemptId/result/');
-    return QuizResult.fromJson(data as Map<String, dynamic>);
+    return QuizResult.fromJson(
+        data is Map<String, dynamic> ? data : Map<String, dynamic>.from(data as Map));
   }
 }

@@ -18,6 +18,15 @@ class AttemptStore {
     return prefs.getString(_kAttemptId);
   }
 
+  Future<String?> get(String quizId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedQuizId = prefs.getString(_kQuizId);
+    if (savedQuizId == quizId) {
+      return prefs.getString(_kAttemptId);
+    }
+    return null;
+  }
+
   Future<String?> getQuizId() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_kQuizId);

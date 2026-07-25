@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 import '../state/attempt_state.dart';
 import '../theme.dart';
@@ -32,6 +34,10 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
   // Fade-in for the whole dialog
   late final AnimationController _fadeController;
   late final Animation<double> _fadeAnimation;
+
+  // Suspension countdown timer (1/6 minute = 10 seconds)
+  int _suspensionRemaining = 10;
+  Timer? _suspensionTimer;
 
   @override
   void initState() {
@@ -68,10 +74,28 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
 
     _fadeController.forward();
     _shakeController.forward();
+
+    _startSuspensionTimer();
+  }
+
+  void _startSuspensionTimer() {
+    _suspensionTimer?.cancel();
+    _suspensionRemaining = 10; // 1/6 minute
+    _suspensionTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      setState(() {
+        if (_suspensionRemaining > 0) {
+          _suspensionRemaining--;
+        } else {
+          _suspensionTimer?.cancel();
+        }
+      });
+    });
   }
 
   @override
   void dispose() {
+    _suspensionTimer?.cancel();
     _shakeController.dispose();
     _pulseController.dispose();
     _fadeController.dispose();
@@ -86,9 +110,8 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
     final maxViolations = AttemptState.maxViolations;
     final isFinalWarning = violationCount >= maxViolations;
 
-    // Show "SUSPENDED" on every 3rd violation slot (≈ 1/6 chance when rounded to 6)
-    // Specifically: show it when violationCount % 6 == 0  OR  it's the final warning
-    final showSuspended = isFinalWarning || (violationCount % 3 == 0);
+    // Show "SUSPENDED" badge
+    final showSuspended = isFinalWarning || _suspensionRemaining > 0 || (violationCount % 3 == 0);
 
     return PopScope(
       canPop: false,
@@ -109,24 +132,24 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Animated shake warning icon
+                // Animated Lottie Error / Warning Icon with shake effect
                 AnimatedBuilder(
                   animation: _shakeAnimation,
                   builder: (_, child) => Transform.translate(
                     offset: Offset(_shakeAnimation.value, 0),
                     child: child,
                   ),
-                  child: Icon(
-                    isFinalWarning
-                        ? Icons.gavel_rounded
-                        : Icons.warning_amber_rounded,
-                    color: isFinalWarning ? const Color(0xFF7F1D1D) : BwbTheme.wrong,
-                    size: 60,
+                  child: SizedBox(
+                    height: 100,
+                    child: Lottie.asset(
+                      'assets/json/cat_error.json',
+                      fit: BoxFit.contain,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 10),
 
-                // "SUSPENDED" animated badge (shown ~1/6 of the time)
+                // "SUSPENDED" animated badge
                 if (showSuspended) ...[
                   ScaleTransition(
                     scale: _pulseAnimation,
@@ -152,12 +175,12 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
                               color: Colors.white, size: 14),
                           const SizedBox(width: 6),
                           Text(
-                            isFinalWarning ? 'SUSPENDED' : 'WARNING',
+                            isFinalWarning ? 'SUSPENDED' : 'SUSPENDED (${_suspensionRemaining}s)',
                             style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.w900,
                               fontSize: 13,
-                              letterSpacing: 2.0,
+                              letterSpacing: 1.5,
                             ),
                           ),
                         ],
@@ -189,6 +212,41 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
                 ),
                 const SizedBox(height: 14),
 
+                // Suspension countdown banner
+                if (_suspensionRemaining > 0 && !isFinalWarning) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFFFCA5A5)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: BwbTheme.wrong,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Suspended for 1/6 min (${_suspensionRemaining}s left)',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: BwbTheme.wrong,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+
                 // Reason
                 Text(
                   widget.reason,
@@ -211,8 +269,12 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
                   child: BwbButton(
                     label: isFinalWarning
                         ? 'Submitting Test...'
-                        : 'I Understand — Resume Test',
-                    onPressed: isFinalWarning ? null : widget.onDismiss,
+                        : _suspensionRemaining > 0
+                            ? 'Suspended (Wait ${_suspensionRemaining}s)'
+                            : 'I Understand — Resume Test',
+                    onPressed: (isFinalWarning || _suspensionRemaining > 0)
+                        ? null
+                        : widget.onDismiss,
                   ),
                 ),
               ],
@@ -287,7 +349,7 @@ class _AnimatedViolationBadgeState extends State<_AnimatedViolationBadge>
       children: [
         AnimatedBuilder(
           animation: _controller,
-          builder: (_, __) {
+          builder: (_, _) {
             final isAnimating = _controller.isAnimating;
             return ClipRect(
               child: Container(
@@ -327,7 +389,7 @@ class _AnimatedViolationBadgeState extends State<_AnimatedViolationBadge>
             tween: Tween(begin: 0, end: fraction),
             duration: const Duration(milliseconds: 500),
             curve: Curves.easeOut,
-            builder: (_, val, __) => LinearProgressIndicator(
+            builder: (_, val, _) => LinearProgressIndicator(
               value: val,
               minHeight: 5,
               backgroundColor: const Color(0xFFE0E0E0),

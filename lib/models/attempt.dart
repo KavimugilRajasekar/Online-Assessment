@@ -33,17 +33,20 @@ class Attempt {
   });
 
   factory Attempt.fromJson(Map<String, dynamic> json) => Attempt(
-        id: json['id'] as String,
-        quizId: (json['quiz_id'] ?? json['quiz'] ?? '') as String,
-        status: parseStatus((json['status'] as String?) ?? ''),
-        startedAt: (json['started_at'] as String?) ?? '',
-        deadlineAt: (json['deadline_at'] as String?) ?? '',
+        id: (json['id'] ?? '').toString(),
+        quizId: (json['quiz_id'] ?? json['quiz'] ?? '').toString(),
+        status: parseStatus((json['status'] ?? '').toString()),
+        startedAt: (json['started_at'] ?? '').toString(),
+        deadlineAt: (json['deadline_at'] ?? '').toString(),
         totalMarks: ((json['total_marks']) as num? ?? 0).toDouble(),
         questionOrder: ((json['question_order'] as List?) ?? [])
-            .map((e) => e as String)
+            .map((e) => e is Map ? (e['id'] ?? '').toString() : e.toString())
             .toList(),
         questions: ((json['questions'] as List?) ?? [])
-            .map((q) => Question.fromJson(q as Map<String, dynamic>))
+            .map((q) => Question.fromJson(
+                q is Map<String, dynamic>
+                    ? q
+                    : (q is Map ? Map<String, dynamic>.from(q) : <String, dynamic>{})))
             .toList(),
       );
 
