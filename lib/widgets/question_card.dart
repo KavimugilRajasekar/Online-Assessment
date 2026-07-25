@@ -83,8 +83,16 @@ class QuestionCard extends StatelessWidget {
               ),
             ),
           ],
-          // Code snippet (if any)
-          if (question.code.isNotEmpty) ...[const SizedBox(height: 12), CodeBlockView(code: question.code)],
+          // Code snippet (if any) — but NEVER for coding rounds, where the
+          // candidate must write their own solution. Showing a pre-rendered
+          // block above the "Open Editor" button would expose whatever the
+          // author put in `code` (which may be the reference solution).
+          // For coding, the starter code is shown as a placeholder inside
+          // the editor (see CodeEditorField + CodingScreen).
+          if (question.code.isNotEmpty && question.qtype != QuestionType.coding) ...[
+            const SizedBox(height: 12),
+            CodeBlockView(code: question.code),
+          ],
           const SizedBox(height: 16),
           // Choices / Coding
           if (question.qtype == QuestionType.coding)

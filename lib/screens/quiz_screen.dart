@@ -8,6 +8,7 @@ import '../widgets/bwb_button.dart';
 import '../services/lockdown_service.dart';
 import '../widgets/lockdown_overlay.dart';
 import '../models/question.dart';
+import 'topic_index.dart';
 
 class QuizScreen extends StatefulWidget {
   const QuizScreen({super.key});
@@ -30,6 +31,16 @@ class _QuizScreenState extends State<QuizScreen>
   // Scroll controller for the bottom question-chip row
   final ScrollController _pagerScrollController = ScrollController();
   int _lastScrolledIndex = -1;
+
+  // Keys for measuring the Prev/Next topic buttons so the auto-scroll
+  // math doesn't have to rely on hard-coded pixel widths.
+  final GlobalKey _prevButtonKey = GlobalKey();
+  final GlobalKey _nextButtonKey = GlobalKey();
+  double _prevButtonWidth = 0;
+  double _nextButtonWidth = 0;
+  static const double _chipWidth = 36;
+  static const double _chipHorizontalMargin = 4; // each side
+  static const double _chipRowGap = 8; // gap between prev button and first chip
 
   @override
   void initState() {
@@ -80,39 +91,54 @@ class _QuizScreenState extends State<QuizScreen>
   }
 
   void _switchToTopic(int topicIndex) {
+    _goToTopic(topicIndex);
+  }
+
+  /// Single entry point for switching to a topic by index.
+  /// Used by the Prev/Next buttons, the bottom-sheet topic selector, and
+  /// the review screen's "jump to question" callback.
+  void _goToTopic(int topicIndex) {
     if (topicIndex < 0 || topicIndex >= _topics.length) return;
+    if (!mounted) return;
+
     setState(() => _activeTopicIndex = topicIndex);
 
-    // Navigate PageController to the first question of the selected topic
+    // Reset the pager scroll guard so the new topic's first chip is
+    // scrolled into view even if the global index didn't change.
+    _lastScrolledIndex = -1;
+
+    if (_tabController.length > topicIndex &&
+        _tabController.index != topicIndex) {
+      _tabController.animateTo(topicIndex);
+    }
+
+    // Jump (not animate) to the first question of the new topic so the
+    // tap feels immediate and never races with the page controller.
     final globalIndex = _globalIndexForTopicStart(topicIndex);
-    _pageController.animateToPage(
-      globalIndex,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-    );
+    if (_pageController.hasClients) {
+      _pageController.jumpToPage(globalIndex);
+    }
 
     final attemptState = context.read<AttemptState>();
     attemptState.goToQuestion(globalIndex);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _scrollPagerToIndex(globalIndex);
+    });
   }
 
   /// The global index (across all questions) of the first question in [topicIndex]
-  int _globalIndexForTopicStart(int topicIndex) {
-    int offset = 0;
-    for (int i = 0; i < topicIndex; i++) {
-      offset += _topics[i].questions.length;
-    }
-    return offset;
-  }
+  int _globalIndexForTopicStart(int topicIndex) =>
+      globalIndexForTopicStart(_topicCounts, topicIndex);
 
   /// Which topic does global question index [globalIndex] belong to?
-  int _topicIndexForGlobal(int globalIndex) {
-    int offset = 0;
-    for (int i = 0; i < _topics.length; i++) {
-      offset += _topics[i].questions.length;
-      if (globalIndex < offset) return i;
-    }
-    return _topics.length - 1;
-  }
+  int _topicIndexForGlobal(int globalIndex) =>
+      topicIndexForGlobal(_topicCounts, globalIndex);
+
+  /// Cached per-topic question counts — used by the helpers above and the
+  /// pager auto-scroll math. Recomputed inside build, never mutated.
+  List<int> get _topicCounts =>
+      _topics.map((t) => t.questions.length).toList(growable: false);
 
 
   @override
@@ -132,18 +158,25 @@ class _QuizScreenState extends State<QuizScreen>
 
     if (!_showingViolationDialog) {
       _showingViolationDialog = true;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => ChangeNotifierProvider<AttemptState>.value(
-          value: attemptState,
-          child: LockdownOverlayDialog(
-            reason: reason,
-            onDismiss: () {
-              _showingViolationDialog = false;
-              Navigator.pop(ctx);
-              LockdownService.instance.enableLockdown(onViolation: _handleViolation);
-            },
+      // Push a transparent full-screen route so the overlay covers the
+      // entire viewport (including the system bars) instead of being
+      // constrained to the centered Dialog insets.
+      Navigator.of(context, rootNavigator: true).push(
+        PageRouteBuilder(
+          opaque: false,
+          barrierColor: Colors.black87,
+          barrierDismissible: false,
+          transitionDuration: const Duration(milliseconds: 200),
+          pageBuilder: (navCtx, _, _) => ChangeNotifierProvider<AttemptState>.value(
+            value: attemptState,
+            child: LockdownOverlayDialog(
+              reason: reason,
+              onDismiss: () {
+                _showingViolationDialog = false;
+                Navigator.of(navCtx, rootNavigator: true).pop();
+                LockdownService.instance.enableLockdown(onViolation: _handleViolation);
+              },
+            ),
           ),
         ),
       ).then((_) => _showingViolationDialog = false);
@@ -185,17 +218,10 @@ class _QuizScreenState extends State<QuizScreen>
             // Pop the review screen first, then jump to question
             Navigator.pop(reviewContext, false);
             final newTopicIdx = _topicIndexForGlobal(globalIdx);
-            setState(() => _activeTopicIndex = newTopicIdx);
-            if (_tabController.length > newTopicIdx) {
-              _tabController.animateTo(newTopicIdx);
+            _goToTopic(newTopicIdx);
+            if (_pageController.hasClients) {
+              _pageController.jumpToPage(globalIdx);
             }
-            context.read<AttemptState>().goToQuestion(globalIdx);
-            // Use addPostFrameCallback so quiz page is visible before we jump
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) {
-                _pageController.jumpToPage(globalIdx);
-              }
-            });
           },
         ),
       ),
@@ -210,8 +236,9 @@ class _QuizScreenState extends State<QuizScreen>
     if (result != null) {
       Navigator.of(context).pushReplacementNamed('/result');
     } else {
-      final msg = attemptState.errorMessage ?? 'Submit failed';
-      // ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      // ScaffoldMessenger.of(context).showSnackBar(
+      //   SnackBar(content: Text(attemptState.errorMessage ?? 'Submit failed')),
+      // );
     }
   }
 
@@ -364,15 +391,30 @@ class _QuizScreenState extends State<QuizScreen>
     if (_lastScrolledIndex == globalIndex) return;
     _lastScrolledIndex = globalIndex;
 
-    // Each chip = 36px wide + 8px left margin + 8px right margin = 52px total
-    // Prev button = ~80px. Add 4px extra margin.
-    const chipWidth = 52.0;
-    const prevButtonWidth = 88.0;
+    // Measure the Prev/Next topic buttons if we haven't yet. The keys let us
+    // read their actual width after the first layout, instead of guessing.
+    _prevButtonWidth = _prevButtonKey.currentContext?.size?.width ?? 0;
+    _nextButtonWidth = _nextButtonKey.currentContext?.size?.width ?? 0;
+
+    final fullChipWidth = _chipWidth + (_chipHorizontalMargin * 2);
     final topicOffset = _globalIndexForTopicStart(_activeTopicIndex);
     final localIndex = globalIndex - topicOffset;
-    final targetScrollX = prevButtonWidth + (localIndex * chipWidth) - 80;
+
+    // Where the chip sits inside the scroll viewport's content space.
+    final chipCenterX = _prevButtonWidth +
+        (localIndex * fullChipWidth) +
+        (fullChipWidth / 2);
+
+    // Aim to put the chip in the middle of the visible area, biased so
+    // the Next button on the right doesn't push the chip off-screen.
+    final viewportWidth = _pagerScrollController.position.viewportDimension;
+    final visibleRightOffset = _nextButtonWidth;
+    final halfVisible = (viewportWidth - visibleRightOffset) / 2;
+
+    final desired = chipCenterX - halfVisible;
+    final maxScroll = _pagerScrollController.position.maxScrollExtent;
     _pagerScrollController.animateTo(
-      targetScrollX.clamp(0.0, _pagerScrollController.position.maxScrollExtent),
+      desired.clamp(0.0, maxScroll),
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOut,
     );
@@ -403,12 +445,10 @@ class _QuizScreenState extends State<QuizScreen>
               children: [
                 if (_activeTopicIndex > 0)
                   Padding(
-                    padding: const EdgeInsets.only(right: 8),
+                    key: _prevButtonKey,
+                    padding: const EdgeInsets.only(right: _chipRowGap),
                     child: InkWell(
-                      onTap: () {
-                        _tabController.animateTo(_activeTopicIndex - 1);
-                        _switchToTopic(_activeTopicIndex - 1);
-                      },
+                      onTap: () => _goToTopic(_activeTopicIndex - 1),
                       borderRadius: BorderRadius.circular(8),
                       child: Container(
                         height: 36,
@@ -440,67 +480,71 @@ class _QuizScreenState extends State<QuizScreen>
                   bgColor = Colors.white;
                 }
 
-                return GestureDetector(
-                  onTap: () {
-                    _pageController.animateToPage(
-                      globalI,
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeInOut,
-                    );
-                  },
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        margin: const EdgeInsets.symmetric(horizontal: 4),
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: bgColor,
-                          border: Border.all(
-                            color: isFlagged
-                                ? Colors.orange
-                                : (hasAnswer
-                                    ? const Color(0xFF16A34A)
-                                    : Colors.black45),
-                            width: isCurrent ? 2.5 : (isFlagged ? 2 : 1),
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Center(
-                          child: Text(
-                            '${localI + 1}',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: isCurrent
-                                  ? Colors.white
+                return Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      if (_pageController.hasClients) {
+                        _pageController.animateToPage(
+                          globalI,
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeInOut,
+                        );
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(6),
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          margin: const EdgeInsets.symmetric(horizontal: _chipHorizontalMargin),
+                          width: _chipWidth,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: bgColor,
+                            border: Border.all(
+                              color: isFlagged
+                                  ? Colors.orange
                                   : (hasAnswer
-                                      ? const Color(0xFF15803D)
-                                      : Colors.black87),
+                                      ? const Color(0xFF16A34A)
+                                      : Colors.black45),
+                              width: isCurrent ? 2.5 : (isFlagged ? 2 : 1),
+                            ),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Center(
+                            child: Text(
+                              '${localI + 1}',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: isCurrent
+                                    ? Colors.white
+                                    : (hasAnswer
+                                        ? const Color(0xFF15803D)
+                                        : Colors.black87),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      if (isFlagged)
-                        const Positioned(
-                          top: -4,
-                          right: 0,
-                          child: Icon(Icons.flag, size: 12, color: Colors.orange),
-                        ),
-                    ],
+                        if (isFlagged)
+                          const Positioned(
+                            top: -4,
+                            right: 0,
+                            child: Icon(Icons.flag, size: 12, color: Colors.orange),
+                          ),
+                      ],
+                    ),
                   ),
                 );
               }),
               if (_activeTopicIndex < _topics.length - 1)
                 Padding(
-                  padding: const EdgeInsets.only(left: 8),
+                  key: _nextButtonKey,
+                  padding: const EdgeInsets.only(left: _chipRowGap),
                   child: InkWell(
-                    onTap: () {
-                      _tabController.animateTo(_activeTopicIndex + 1);
-                      _switchToTopic(_activeTopicIndex + 1);
-                    },
+                    onTap: () => _goToTopic(_activeTopicIndex + 1),
                     borderRadius: BorderRadius.circular(8),
                     child: Container(
                       height: 36,
@@ -523,6 +567,10 @@ class _QuizScreenState extends State<QuizScreen>
   }
 
   void _showTopicSelectorPopUp() {
+    // Capture the State so the bottom-sheet's onTap can act on it
+    // after Navigator.pop without depending on the sheet's BuildContext.
+    final outerState = this;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -541,20 +589,20 @@ class _QuizScreenState extends State<QuizScreen>
               Flexible(
                 child: ListView.builder(
                   shrinkWrap: true,
-                  itemCount: _topics.length,
+                  itemCount: outerState._topics.length,
                   itemBuilder: (ctx, i) {
-                    final t = _topics[i];
-                    final isSelected = i == _activeTopicIndex;
+                    final t = outerState._topics[i];
+                    final isSelected = i == outerState._activeTopicIndex;
                     return ListTile(
                       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
                       title: Text(t.name, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal, fontSize: 15)),
                       trailing: isSelected ? const Icon(Icons.check_circle_rounded, color: Color(0xFF059669)) : null,
                       onTap: () {
                         Navigator.pop(ctx);
-                        if (i != _activeTopicIndex) {
-                          setState(() => _activeTopicIndex = i);
-                          _tabController.animateTo(i);
-                          _switchToTopic(i);
+                        // Read from the outer state to avoid a stale
+                        // BuildContext after the bottom sheet dismisses.
+                        if (i != outerState._activeTopicIndex) {
+                          outerState._goToTopic(i);
                         }
                       },
                     );

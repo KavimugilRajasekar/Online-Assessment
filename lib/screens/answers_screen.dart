@@ -322,8 +322,9 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
               }
             }
 
-            // Coding expected answer
-            if (isCode && q.answers.isNotEmpty) {
+            // Coding round — the candidate writes their own code, so the
+            // reference answer must never be published. Show only a note.
+            if (isCode) {
               qWidgets.add(pw.SizedBox(height: 6));
               qWidgets.add(
                 pw.Container(
@@ -334,8 +335,8 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
                     borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
                   ),
                   child: pw.Text(
-                    q.answers.first,
-                    style: pw.TextStyle(font: pw.Font.courier(), fontSize: 9, color: purpleColor),
+                    'Coding answers are reviewed manually by the examiner.',
+                    style: pw.TextStyle(fontSize: 9, color: purpleColor, fontStyle: pw.FontStyle.italic),
                   ),
                 ),
               );
@@ -1031,7 +1032,8 @@ class _QuestionCard extends StatelessWidget {
               ),
             ),
 
-          // Coding expected answer
+          // Coding round — candidates write their own code, so the
+          // reference solution must never be published in the answer key.
           if (isCode) ...[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -1043,19 +1045,19 @@ class _QuestionCard extends StatelessWidget {
                   border: Border.all(color: const Color(0xFFDDD6FE)),
                 ),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Icon(Icons.code_rounded,
                         color: Color(0xFF7C3AED), size: 16),
                     const SizedBox(width: 8),
-                    Expanded(
+                    const Expanded(
                       child: Text(
-                        q.answers.isNotEmpty
-                            ? q.answers.first
-                            : 'Open-ended coding question — no single correct answer.',
-                        style: const TextStyle(
+                        'Coding answers are reviewed manually by the examiner. '
+                        'No reference solution is published.',
+                        style: TextStyle(
                           color: Color(0xFF5B21B6),
                           fontSize: 12,
-                          fontFamily: 'monospace',
+                          fontStyle: FontStyle.italic,
                           height: 1.4,
                         ),
                         softWrap: true,

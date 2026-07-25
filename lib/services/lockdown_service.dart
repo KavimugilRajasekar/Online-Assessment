@@ -14,6 +14,12 @@ class LockdownService {
   bool _isLockdownActive = false;
   ViolationCallback? _onViolation;
 
+  // Native bridge to MainActivity.kt. On Android the host sets FLAG_SECURE
+  // and stricter SYSTEM_UI_FLAG_IMMERSIVE_STICKY. On every other platform
+  // the channel returns MethodNotImplemented which we swallow.
+  static const MethodChannel _channel =
+      MethodChannel('online_assessment/lockdown');
+
   bool get isLockdownActive => _isLockdownActive;
 
   /// Start Kiosk Mode & Anti-Cheat lockdown across all platforms.
@@ -34,7 +40,18 @@ class LockdownService {
       debugPrint('SystemChrome error: $e');
     }
 
-    // 2. Web: delegate to web-specific implementation
+    // 2. Android: ask the Activity to set FLAG_SECURE (blocks screenshots
+    //    and the recents-screen thumbnail) and re-apply the immersive flags
+    //    natively so the notification shade / Quick Settings can't be pulled.
+    if (!kIsWeb) {
+      try {
+        await _channel.invokeMethod<bool>('enable');
+      } catch (e) {
+        debugPrint('Lockdown native bridge error (enable): $e');
+      }
+    }
+
+    // 3. Web: delegate to web-specific implementation
     if (kIsWeb) {
       _enableWebLockdown();
     }
@@ -53,6 +70,14 @@ class LockdownService {
       await SystemChrome.setPreferredOrientations([]);
     } catch (e) {
       debugPrint('SystemChrome restore error: $e');
+    }
+
+    if (!kIsWeb) {
+      try {
+        await _channel.invokeMethod<bool>('disable');
+      } catch (e) {
+        debugPrint('Lockdown native bridge error (disable): $e');
+      }
     }
 
     if (kIsWeb) {
