@@ -118,166 +118,159 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
       child: FadeTransition(
         opacity: _fadeAnimation,
         child: Dialog(
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            side: BorderSide(
-              color: isFinalWarning ? const Color(0xFF7F1D1D) : BwbTheme.wrong,
-              width: 3,
-            ),
-            borderRadius: BorderRadius.zero,
-          ),
-          insetPadding: const EdgeInsets.all(20),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Animated Lottie Error / Warning Icon with shake effect
-                AnimatedBuilder(
-                  animation: _shakeAnimation,
-                  builder: (_, child) => Transform.translate(
-                    offset: Offset(_shakeAnimation.value, 0),
-                    child: child,
-                  ),
-                  child: SizedBox(
-                    height: 100,
-                    child: Lottie.asset(
-                      'assets/json/cat_error.json',
-                      fit: BoxFit.contain,
-                    ),
-                  ),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: (isFinalWarning ? const Color(0xFF7F1D1D) : BwbTheme.wrong).withValues(alpha: 0.15),
+                  blurRadius: 40,
+                  spreadRadius: 10,
+                  offset: const Offset(0, 10),
                 ),
-                const SizedBox(height: 10),
-
-                // "SUSPENDED" animated badge
-                if (showSuspended) ...[
-                  ScaleTransition(
-                    scale: _pulseAnimation,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF7F1D1D), Color(0xFFDC2626)],
-                        ),
-                        borderRadius: BorderRadius.circular(4),
-                        boxShadow: [
-                          BoxShadow(
-                            color: BwbTheme.wrong.withValues(alpha: 0.4),
-                            blurRadius: 10,
-                            spreadRadius: 1,
-                          ),
-                        ],
+              ],
+              border: Border.all(
+                color: (isFinalWarning ? const Color(0xFF7F1D1D) : BwbTheme.wrong).withValues(alpha: 0.3),
+                width: 2,
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(26),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(32, 40, 32, 32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Animated Lottie Error / Warning Icon with shake effect & glow
+                    AnimatedBuilder(
+                      animation: _shakeAnimation,
+                      builder: (_, child) => Transform.translate(
+                        offset: Offset(_shakeAnimation.value, 0),
+                        child: child,
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                      child: Stack(
+                        alignment: Alignment.center,
                         children: [
-                          const Icon(Icons.block_rounded,
-                              color: Colors.white, size: 14),
-                          const SizedBox(width: 6),
-                          Text(
-                            isFinalWarning ? 'SUSPENDED' : 'SUSPENDED (${_suspensionRemaining}s)',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w900,
-                              fontSize: 13,
-                              letterSpacing: 1.5,
+                          // Glow
+                          Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: (isFinalWarning ? const Color(0xFF7F1D1D) : BwbTheme.wrong).withValues(alpha: 0.2),
+                                  blurRadius: 30,
+                                  spreadRadius: 10,
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(
+                            height: 110,
+                            child: Lottie.asset(
+                              'assets/json/error.json',
+                              fit: BoxFit.contain,
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                ],
+                    const SizedBox(height: 20),
 
-                // Title
-                Text(
-                  isFinalWarning
-                      ? 'ASSESSMENT SUSPENDED'
-                      : 'SECURITY VIOLATION DETECTED',
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                    color: isFinalWarning ? const Color(0xFF7F1D1D) : BwbTheme.wrong,
-                    letterSpacing: 0.4,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
 
-                // Animated violation counter badge
-                _AnimatedViolationBadge(
-                  violationCount: violationCount,
-                  maxViolations: maxViolations,
-                ),
-                const SizedBox(height: 14),
-
-                // Suspension countdown banner
-                if (_suspensionRemaining > 0 && !isFinalWarning) ...[
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFEF2F2),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: const Color(0xFFFCA5A5)),
+                    // Title
+                    Text(
+                      isFinalWarning
+                          ? 'ASSESSMENT TERMINATED'
+                          : 'SECURITY VIOLATION',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        color: isFinalWarning ? const Color(0xFF7F1D1D) : BwbTheme.text,
+                        letterSpacing: -0.5,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: BwbTheme.wrong,
+                    const SizedBox(height: 16),
+
+
+
+                    // Reason Box
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: BwbTheme.bg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: BwbTheme.border),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            widget.reason,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: BwbTheme.text,
+                              height: 1.4,
+                            ),
+                            textAlign: TextAlign.center,
                           ),
+                          const SizedBox(height: 8),
+                          Text(
+                            isFinalWarning
+                                ? 'Maximum violations reached. Your test is being automatically submitted.'
+                                : 'Opening other apps, overlays, notification shade, or leaving fullscreen is prohibited.',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: BwbTheme.muted,
+                              height: 1.4,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 54,
+                      child: ElevatedButton(
+                        onPressed: (isFinalWarning || _suspensionRemaining > 0)
+                            ? null
+                            : widget.onDismiss,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isFinalWarning ? const Color(0xFF7F1D1D) : BwbTheme.primary,
+                          disabledBackgroundColor: BwbTheme.border,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          elevation: 0,
                         ),
-                        const SizedBox(width: 10),
-                        Text(
-                          'Suspended for 1/6 min (${_suspensionRemaining}s left)',
-                          style: const TextStyle(
-                            fontSize: 13,
+                        child: Text(
+                          isFinalWarning
+                              ? 'Submitting Test...'
+                              : _suspensionRemaining > 0
+                                  ? 'Wait ${_suspensionRemaining}s to Resume'
+                                  : 'I Understand — Resume',
+                          style: TextStyle(
+                            fontSize: 16,
                             fontWeight: FontWeight.bold,
-                            color: BwbTheme.wrong,
+                            color: (isFinalWarning || _suspensionRemaining > 0)
+                                ? BwbTheme.muted
+                                : Colors.white,
                           ),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-
-                // Reason
-                Text(
-                  widget.reason,
-                  style: const TextStyle(
-                      fontSize: 14, color: BwbTheme.text, height: 1.4),
-                  textAlign: TextAlign.center,
+                  ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  isFinalWarning
-                      ? 'Maximum violations reached. Your test is being automatically submitted.'
-                      : 'Opening other apps, overlays, notification shade, or leaving fullscreen is prohibited during the test.',
-                  style: const TextStyle(fontSize: 12, color: BwbTheme.muted),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-
-                SizedBox(
-                  width: double.infinity,
-                  child: BwbButton(
-                    label: isFinalWarning
-                        ? 'Submitting Test...'
-                        : _suspensionRemaining > 0
-                            ? 'Suspended (Wait ${_suspensionRemaining}s)'
-                            : 'I Understand — Resume Test',
-                    onPressed: (isFinalWarning || _suspensionRemaining > 0)
-                        ? null
-                        : widget.onDismiss,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -286,127 +279,3 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
   }
 }
 
-/// Animated counter badge that transitions from old count → new count.
-class _AnimatedViolationBadge extends StatefulWidget {
-  final int violationCount;
-  final int maxViolations;
-  const _AnimatedViolationBadge(
-      {required this.violationCount, required this.maxViolations});
-
-  @override
-  State<_AnimatedViolationBadge> createState() =>
-      _AnimatedViolationBadgeState();
-}
-
-class _AnimatedViolationBadgeState extends State<_AnimatedViolationBadge>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _slideOut;
-  late Animation<double> _slideIn;
-  int _displayed = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _displayed = widget.violationCount;
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
-    _slideOut = Tween<double>(begin: 0, end: -20).animate(
-      CurvedAnimation(parent: _controller, curve: const Interval(0, 0.5)));
-    _slideIn = Tween<double>(begin: 20, end: 0).animate(
-      CurvedAnimation(parent: _controller, curve: const Interval(0.5, 1.0)));
-  }
-
-  @override
-  void didUpdateWidget(_AnimatedViolationBadge old) {
-    super.didUpdateWidget(old);
-    if (old.violationCount != widget.violationCount) {
-      _controller.forward(from: 0).whenComplete(() {
-        if (mounted) setState(() => _displayed = widget.violationCount);
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final fraction =
-        (widget.violationCount / widget.maxViolations).clamp(0.0, 1.0);
-    final barColor = fraction >= 1.0
-        ? const Color(0xFF7F1D1D)
-        : fraction >= 0.6
-            ? BwbTheme.wrong
-            : const Color(0xFFF59E0B);
-
-    return Column(
-      children: [
-        AnimatedBuilder(
-          animation: _controller,
-          builder: (_, _) {
-            final isAnimating = _controller.isAnimating;
-            return ClipRect(
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                decoration: BoxDecoration(
-                  color: BwbTheme.wrong.withValues(alpha: 0.1),
-                  border: Border.all(color: BwbTheme.wrong),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: isAnimating && _controller.value < 0.5
-                    ? Transform.translate(
-                        offset: Offset(0, _slideOut.value),
-                        child: Opacity(
-                          opacity: math.max(0, 1 - _controller.value * 4),
-                          child: _badgeText(_displayed),
-                        ),
-                      )
-                    : Transform.translate(
-                        offset: Offset(0, _controller.isAnimating ? _slideIn.value : 0),
-                        child: Opacity(
-                          opacity: _controller.isAnimating
-                              ? math.min(1, (_controller.value - 0.5) * 4)
-                              : 1.0,
-                          child: _badgeText(widget.violationCount),
-                        ),
-                      ),
-              ),
-            );
-          },
-        ),
-        const SizedBox(height: 8),
-        // Progress bar showing violations used
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: fraction),
-            duration: const Duration(milliseconds: 500),
-            curve: Curves.easeOut,
-            builder: (_, val, _) => LinearProgressIndicator(
-              value: val,
-              minHeight: 5,
-              backgroundColor: const Color(0xFFE0E0E0),
-              valueColor: AlwaysStoppedAnimation<Color>(barColor),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _badgeText(int count) => Text(
-        'Violation $count of ${widget.maxViolations}',
-        style: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.bold,
-          color: BwbTheme.wrong,
-        ),
-      );
-}

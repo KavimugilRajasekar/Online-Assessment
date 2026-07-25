@@ -34,8 +34,8 @@ class ChoiceTile extends StatelessWidget {
         trailing = const Icon(Icons.cancel, color: BwbTheme.wrong, size: 20);
         break;
       case ChoiceTileState.selected:
-        border = BwbTheme.border;
-        bg = const Color(0xFFF0F0F0);
+        border = BwbTheme.primary;
+        bg = BwbTheme.primary.withValues(alpha: 0.1);
         trailing = null;
         break;
       case ChoiceTileState.unselected:

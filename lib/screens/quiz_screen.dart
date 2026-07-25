@@ -27,6 +27,10 @@ class _QuizScreenState extends State<QuizScreen>
   List<_TopicGroup> _topics = [];
   int _activeTopicIndex = 0;
 
+  // Scroll controller for the bottom question-chip row
+  final ScrollController _pagerScrollController = ScrollController();
+  int _lastScrolledIndex = -1;
+
   @override
   void initState() {
     super.initState();
@@ -117,6 +121,7 @@ class _QuizScreenState extends State<QuizScreen>
     WidgetsBinding.instance.removeObserver(this);
     _pageController.dispose();
     _tabController.dispose();
+    _pagerScrollController.dispose();
     super.dispose();
   }
 
@@ -171,15 +176,28 @@ class _QuizScreenState extends State<QuizScreen>
   }
 
   Future<void> _submit() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Submit quiz?'),
-        content: const Text('This will end your attempt. Are you sure?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Submit')),
-        ],
+    final confirm = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _QuizReviewScreen(
+          topics: _topics,
+          onSelectQuestion: (globalIdx, reviewContext) {
+            // Pop the review screen first, then jump to question
+            Navigator.pop(reviewContext, false);
+            final newTopicIdx = _topicIndexForGlobal(globalIdx);
+            setState(() => _activeTopicIndex = newTopicIdx);
+            if (_tabController.length > newTopicIdx) {
+              _tabController.animateTo(newTopicIdx);
+            }
+            context.read<AttemptState>().goToQuestion(globalIdx);
+            // Use addPostFrameCallback so quiz page is visible before we jump
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                _pageController.jumpToPage(globalIdx);
+              }
+            });
+          },
+        ),
       ),
     );
     if (confirm != true) return;
@@ -202,6 +220,14 @@ class _QuizScreenState extends State<QuizScreen>
     final attemptState = context.watch<AttemptState>();
     final attempt = attemptState.attempt;
 
+    if (attempt != null && attemptState.remainingSeconds <= 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.of(context).pushNamedAndRemoveUntil('/result', (route) => false);
+        }
+      });
+    }
+
     if (attempt == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
@@ -221,13 +247,38 @@ class _QuizScreenState extends State<QuizScreen>
       },
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Quiz', style: TextStyle(fontWeight: FontWeight.bold)),
-          bottom: hasMultipleTopics
-              ? PreferredSize(
-                  preferredSize: const Size.fromHeight(44),
-                  child: _buildTopicTabBar(),
+          automaticallyImplyLeading: false,
+          title: hasMultipleTopics
+              ? Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.article_outlined, color: Colors.black87),
+                      onPressed: _showTopicSelectorPopUp,
+                    ),
+                    Expanded(
+                      child: Text(
+                        _topics[_activeTopicIndex].name,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 )
-              : null,
+              : Row(
+                  children: [
+                    const Icon(Icons.article_outlined, color: Colors.black87),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _topics.isNotEmpty ? _topics.first.name : 'Quiz',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
           actions: [
             Padding(
               padding: const EdgeInsets.only(right: 12),
@@ -269,10 +320,34 @@ class _QuizScreenState extends State<QuizScreen>
                       _tabController.animateTo(newTopicIdx);
                     }
                   }
+                  // Auto-scroll the bottom chip row to keep current question visible
+                  _scrollPagerToIndex(globalIndex);
                 },
-                itemBuilder: (context, i) => SingleChildScrollView(
-                  child: QuestionCard(question: questions[i], index: i),
-                ),
+                itemBuilder: (context, i) {
+                  final localIdx = i - _globalIndexForTopicStart(_topicIndexForGlobal(i));
+                  final question = questions[i];
+                  return SingleChildScrollView(
+                    child: QuestionCard(
+                      question: question,
+                      index: localIdx,
+                      onSingleChoiceSelected: () {
+                        // Auto-slide to next question on single choice selection
+                        final nextPage = i + 1;
+                        if (nextPage < questions.length) {
+                          Future.delayed(const Duration(milliseconds: 350), () {
+                            if (mounted) {
+                              _pageController.animateToPage(
+                                nextPage,
+                                duration: const Duration(milliseconds: 350),
+                                curve: Curves.easeInOut,
+                              );
+                            }
+                          });
+                        }
+                      },
+                    ),
+                  );
+                },
               ),
             ),
             // Bottom pager — shows only current topic's questions
@@ -283,71 +358,23 @@ class _QuizScreenState extends State<QuizScreen>
     );
   }
 
-  Widget _buildTopicTabBar() {
-    if (_topics.isEmpty) return const SizedBox.shrink();
-    return Container(
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.black12)),
-      ),
-      child: TabBar(
-        controller: _tabController,
-        isScrollable: true,
-        tabAlignment: TabAlignment.start,
-        indicatorColor: BwbTheme.primary,
-        indicatorWeight: 3,
-        labelColor: BwbTheme.primary,
-        unselectedLabelColor: Colors.black54,
-        labelStyle: const TextStyle(
-          fontFamily: BwbTheme.fontFamily,
-          fontWeight: FontWeight.bold,
-          fontSize: 13,
-        ),
-        unselectedLabelStyle: const TextStyle(
-          fontFamily: BwbTheme.fontFamily,
-          fontWeight: FontWeight.w500,
-          fontSize: 13,
-        ),
-        tabs: _topics.asMap().entries.map((entry) {
-          final i = entry.key;
-          final topic = entry.value;
-          // Count answered in this topic
-          final attemptState = context.read<AttemptState>();
-          final answeredCount = topic.questions
-              .where((q) =>
-                  (attemptState.selectedChoices[q.id]?.isNotEmpty ?? false) ||
-                  (attemptState.codeAnswers[q.id]?.isNotEmpty ?? false))
-              .length;
-          final total = topic.questions.length;
-          return Tab(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('${i + 1}. ${topic.name}'),
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: answeredCount == total
-                        ? const Color(0xFFDCFCE7)
-                        : const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    '$answeredCount/$total',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: answeredCount == total
-                          ? const Color(0xFF15803D)
-                          : Colors.black54,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        }).toList(),
-      ),
+  // Auto-scroll the bottom chips row so the current question is always visible
+  void _scrollPagerToIndex(int globalIndex) {
+    if (!_pagerScrollController.hasClients) return;
+    if (_lastScrolledIndex == globalIndex) return;
+    _lastScrolledIndex = globalIndex;
+
+    // Each chip = 36px wide + 8px left margin + 8px right margin = 52px total
+    // Prev button = ~80px. Add 4px extra margin.
+    const chipWidth = 52.0;
+    const prevButtonWidth = 88.0;
+    final topicOffset = _globalIndexForTopicStart(_activeTopicIndex);
+    final localIndex = globalIndex - topicOffset;
+    final targetScrollX = prevButtonWidth + (localIndex * chipWidth) - 80;
+    _pagerScrollController.animateTo(
+      targetScrollX.clamp(0.0, _pagerScrollController.position.maxScrollExtent),
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
     );
   }
 
@@ -368,51 +395,34 @@ class _QuizScreenState extends State<QuizScreen>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Topic label + prev/next topic navigation
-          if (_topics.length > 1)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6, left: 4, right: 4),
-              child: Row(
-                children: [
-                  // Prev topic
-                  if (_activeTopicIndex > 0)
-                    _TopicNavButton(
-                      label: '← ${_topics[_activeTopicIndex - 1].name}',
+          // Question number chips (for this topic only)
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            controller: _pagerScrollController,
+            child: Row(
+              children: [
+                if (_activeTopicIndex > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: InkWell(
                       onTap: () {
                         _tabController.animateTo(_activeTopicIndex - 1);
                         _switchToTopic(_activeTopicIndex - 1);
                       },
-                    ),
-                  const Spacer(),
-                  // Current topic label
-                  Text(
-                    currentTopic.name,
-                    style: const TextStyle(
-                      fontFamily: BwbTheme.fontFamily,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: BwbTheme.primary,
-                      letterSpacing: 0.3,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        height: 36,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: BwbTheme.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text('← Prev', style: TextStyle(color: BwbTheme.primary, fontWeight: FontWeight.bold, fontSize: 13)),
+                      ),
                     ),
                   ),
-                  const Spacer(),
-                  // Next topic
-                  if (_activeTopicIndex < _topics.length - 1)
-                    _TopicNavButton(
-                      label: '${_topics[_activeTopicIndex + 1].name} →',
-                      onTap: () {
-                        _tabController.animateTo(_activeTopicIndex + 1);
-                        _switchToTopic(_activeTopicIndex + 1);
-                      },
-                    ),
-                ],
-              ),
-            ),
-          // Question number chips (for this topic only)
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: List.generate(topicQuestions.length, (localI) {
+                ...List.generate(topicQuestions.length, (localI) {
                 final globalI = globalOffset + localI;
                 final question = topicQuestions[localI];
                 final hasAnswer =
@@ -483,10 +493,79 @@ class _QuizScreenState extends State<QuizScreen>
                   ),
                 );
               }),
-            ),
+              if (_activeTopicIndex < _topics.length - 1)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: InkWell(
+                    onTap: () {
+                      _tabController.animateTo(_activeTopicIndex + 1);
+                      _switchToTopic(_activeTopicIndex + 1);
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      height: 36,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: BwbTheme.primary,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text('Next →', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                    ),
+                  ),
+                ),
+            ],
           ),
+        ),
         ],
       ),
+    );
+  }
+
+  void _showTopicSelectorPopUp() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
+                child: Text('Select Topic', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: BwbTheme.primary)),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _topics.length,
+                  itemBuilder: (ctx, i) {
+                    final t = _topics[i];
+                    final isSelected = i == _activeTopicIndex;
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                      title: Text(t.name, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal, fontSize: 15)),
+                      trailing: isSelected ? const Icon(Icons.check_circle_rounded, color: Color(0xFF059669)) : null,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        if (i != _activeTopicIndex) {
+                          setState(() => _activeTopicIndex = i);
+                          _tabController.animateTo(i);
+                          _switchToTopic(i);
+                        }
+                      },
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -500,31 +579,173 @@ class _TopicGroup {
 }
 
 // ─── Topic navigation button ──────────────────────────────────────────────────
-class _TopicNavButton extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  const _TopicNavButton({required this.label, required this.onTap});
+// ─── Quiz Review Screen ───────────────────────────────────────────────────────
+class _QuizReviewScreen extends StatelessWidget {
+  final List<_TopicGroup> topics;
+  final Function(int, BuildContext) onSelectQuestion;
+
+  const _QuizReviewScreen({required this.topics, required this.onSelectQuestion});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: BwbTheme.primary.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(8),
+    final state = context.watch<AttemptState>();
+    final attempt = state.attempt;
+    final totalSeconds = attempt != null ? attempt.deadlineDateTime.difference(attempt.startedAtDateTime).inSeconds.abs() : 0;
+    int totalQs = 0;
+    int totalAns = 0;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Review Assessment', style: TextStyle(fontWeight: FontWeight.bold)),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.pop(context, false),
         ),
-        child: Text(
-          label,
-          style: const TextStyle(
-            fontSize: 11,
-            color: BwbTheme.primary,
-            fontWeight: FontWeight.w600,
+      ),
+      body: Column(
+        children: [
+          TimerBar(totalSeconds: totalSeconds),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            color: BwbTheme.primary.withValues(alpha: 0.05),
+            child: const Text(
+              'Tap any question box below to jump directly to it.',
+              style: TextStyle(color: BwbTheme.primary, fontSize: 13, fontWeight: FontWeight.w600),
+            ),
           ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: topics.length,
+              itemBuilder: (ctx, i) {
+                final topic = topics[i];
+                int topicAns = 0;
+                final boxes = <Widget>[];
+                for (int qi = 0; qi < topic.questions.length; qi++) {
+                  final q = topic.questions[qi];
+                  final hasAns = (state.selectedChoices[q.id]?.isNotEmpty ?? false) ||
+                                 (state.codeAnswers[q.id]?.isNotEmpty ?? false);
+                  if (hasAns) {
+                    topicAns++;
+                    totalAns++;
+                  }
+                  totalQs++;
+
+                  // Calculate global index
+                  int globalIdx = 0;
+                  for (int t = 0; t < i; t++) {
+                    globalIdx += topics[t].questions.length;
+                  }
+                  globalIdx += qi;
+                  final isFlagged = state.flaggedQuestions.contains(q.id);
+
+                  boxes.add(
+                    GestureDetector(
+                      onTap: () => onSelectQuestion(globalIdx, context),
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Container(
+                            decoration: BoxDecoration(
+                              color: hasAns ? const Color(0xFF10B981) : Colors.white,
+                              border: Border.all(color: hasAns ? const Color(0xFF059669) : Colors.grey.shade400, width: 1.5),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Center(
+                              child: Text(
+                                '${qi + 1}',
+                                style: TextStyle(
+                                  color: hasAns ? Colors.white : Colors.black87,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (isFlagged)
+                            const Positioned(
+                              top: -4,
+                              right: -4,
+                              child: Icon(Icons.flag_rounded, size: 16, color: Colors.orange),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(child: Text(topic.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+                        Text(
+                          '$topicAns / ${topic.questions.length} Answered', 
+                          style: TextStyle(
+                            color: topicAns == topic.questions.length ? const Color(0xFF10B981) : Colors.orange.shade700,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          )
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    GridView.count(
+                      crossAxisCount: 6,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      mainAxisSpacing: 10,
+                      crossAxisSpacing: 10,
+                      children: boxes,
+                    ),
+                    const SizedBox(height: 24),
+                    if (i < topics.length - 1) const Divider(),
+                    if (i < topics.length - 1) const SizedBox(height: 12),
+                  ],
+                );
+              },
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Colors.black12)),
+              boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -2))],
+            ),
+            child: SafeArea(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('Final Submission', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        Text('$totalAns Answered', style: const TextStyle(color: Color(0xFF059669), fontWeight: FontWeight.bold, fontSize: 13)),
+                        if (totalQs - totalAns > 0)
+                          Text('${totalQs - totalAns} Unanswered', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Submit Quiz', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  ),
+                ],
+              ),
+            ),
+          )
+        ],
       ),
     );
   }

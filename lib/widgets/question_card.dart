@@ -11,6 +11,7 @@ class QuestionCard extends StatelessWidget {
   final int index;
   final bool readOnly;
   final bool? isCorrect; // for results
+  final VoidCallback? onSingleChoiceSelected;
 
   const QuestionCard({
     super.key,
@@ -18,6 +19,7 @@ class QuestionCard extends StatelessWidget {
     required this.index,
     this.readOnly = false,
     this.isCorrect,
+    this.onSingleChoiceSelected,
   });
 
   @override
@@ -122,6 +124,7 @@ class QuestionCard extends StatelessWidget {
                   if (question.qtype == QuestionType.mcqSingle ||
                       question.qtype == QuestionType.codeMcq) {
                     state.selectSingleChoice(question.id, choice.id);
+                    onSingleChoiceSelected?.call();
                   } else {
                     state.toggleMultiChoice(question.id, choice.id);
                   }

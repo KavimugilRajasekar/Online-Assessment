@@ -168,7 +168,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     if (quizState.loadState == QuizLoadState.error) {
       return Column(
         children: [
-          Lottie.asset('assets/json/cat_error.json', height: 140),
+          Lottie.asset('assets/json/cat_cloud.json', height: 140),
           const SizedBox(height: 12),
           BwbCard(
             borderColor: BwbTheme.wrong,
@@ -386,8 +386,6 @@ class _QuizCardState extends State<_QuizCard> {
                         Text(
                           widget.description,
                           style: const TextStyle(color: BwbTheme.muted, fontSize: 12),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                       const SizedBox(height: 8),

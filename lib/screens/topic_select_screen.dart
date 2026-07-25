@@ -151,8 +151,6 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
                                       fontSize: 17,
                                       fontWeight: FontWeight.bold,
                                     ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
                               ],

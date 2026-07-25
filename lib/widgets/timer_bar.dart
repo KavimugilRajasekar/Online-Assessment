@@ -28,11 +28,16 @@ class TimerBar extends StatelessWidget {
         children: [
           Expanded(
             child: ClipRRect(
-              child: LinearProgressIndicator(
-                value: fraction,
-                backgroundColor: const Color(0xFFE0E0E0),
-                valueColor: AlwaysStoppedAnimation<Color>(barColor),
-                minHeight: 6,
+              child: TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 1.0, end: fraction),
+                duration: const Duration(seconds: 1),
+                curve: Curves.linear,
+                builder: (context, val, _) => LinearProgressIndicator(
+                  value: val,
+                  backgroundColor: const Color(0xFFE0E0E0),
+                  valueColor: AlwaysStoppedAnimation<Color>(barColor),
+                  minHeight: 6,
+                ),
               ),
             ),
           ),
