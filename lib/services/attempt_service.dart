@@ -39,7 +39,35 @@ class AttemptService {
 
   Future<QuizResult> submit(String attemptId) async {
     final data = await ApiClient.instance.post('/api/attempts/$attemptId/submit/');
-    return QuizResult.fromJson(data as Map<String, dynamic>);
+    return _parseResult(data, attemptId);
+  }
+
+  /// Parses a QuizResult from the raw API response, handling multiple formats:
+  /// - Direct result map
+  /// - Wrapped under 'result', 'attempt', or 'data' keys
+  /// - Falls back to getResult() if parsing fails
+  Future<QuizResult> _parseResult(dynamic data, String attemptId) async {
+    if (data == null) {
+      // 204 No Content — fetch result separately
+      return getResult(attemptId);
+    }
+    if (data is Map<String, dynamic>) {
+      // Try direct parse
+      if (data.containsKey('id') || data.containsKey('score')) {
+        return QuizResult.fromJson(data);
+      }
+      // Wrapped response — try common envelope keys
+      for (final key in ['result', 'attempt', 'data']) {
+        final inner = data[key];
+        if (inner is Map<String, dynamic>) {
+          return QuizResult.fromJson(inner);
+        }
+      }
+      // Still a map but no recognised structure — best effort
+      return QuizResult.fromJson(data);
+    }
+    // Unexpected type — fall back to fetching the result
+    return getResult(attemptId);
   }
 
   Future<QuizResult> getResult(String attemptId) async {

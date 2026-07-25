@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 import '../state/quiz_state.dart';
 import '../theme.dart';
@@ -12,13 +13,25 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+  late final AnimationController _fadeController;
+  late final Animation<double> _fadeAnimation;
+
   @override
   void initState() {
     super.initState();
+    _fadeController = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
+    _fadeAnimation = CurvedAnimation(parent: _fadeController, curve: Curves.easeIn);
+    _fadeController.forward();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<QuizState>().loadQuizzes();
     });
+  }
+
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    super.dispose();
   }
 
   @override
@@ -26,180 +39,347 @@ class _HomeScreenState extends State<HomeScreen> {
     final quizState = context.watch<QuizState>();
 
     return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            Image.asset(
-              'assets/icons/online_assessment_logo.png',
-              height: 32,
-              width: 32,
-              fit: BoxFit.contain,
-            ),
-            const SizedBox(width: 10),
-            const Text(
-              'Online Assessment',
-              style: TextStyle(
-                fontFamily: BwbTheme.fontFamily,
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
-              ),
-            ),
-          ],
-        ),
-      ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Hero logo + welcome section
-              Center(
-                child: Column(
-                  children: [
-                    const SizedBox(height: 8),
-                    Image.asset(
-                      'assets/icons/online_assessment_logo.png',
-                      height: 80,
-                      width: 80,
-                      fit: BoxFit.contain,
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: CustomScrollView(
+            slivers: [
+              // Hero header
+              SliverToBoxAdapter(
+                child: Container(
+                  width: double.infinity,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF1e3a8a), Color(0xFF2563EB)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Welcome',
-                      style: TextStyle(
-                        fontFamily: BwbTheme.fontFamily,
-                        fontSize: 30,
-                        fontWeight: FontWeight.bold,
+                  ),
+                  child: SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+                      child: Column(
+                        children: [
+                          // Logo row
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Image.asset(
+                                  'assets/icons/online_assessment_logo.png',
+                                  height: 32,
+                                  width: 32,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              const Text(
+                                'Online Assessment',
+                                style: TextStyle(
+                                  fontFamily: BwbTheme.fontFamily,
+                                  color: Colors.white,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+                          // Lottie animation
+                          SizedBox(
+                            height: 140,
+                            child: Lottie.asset(
+                              'assets/json/cat_cloud.json',
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Welcome!',
+                            style: TextStyle(
+                              fontFamily: BwbTheme.fontFamily,
+                              color: Colors.white,
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Select a quiz below to begin your assessment.',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.8),
+                              fontSize: 14,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Select a quiz below to begin your assessment.',
-                      style: TextStyle(fontSize: 14, color: BwbTheme.muted),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 28),
-                  ],
+                  ),
                 ),
               ),
 
-              // Quiz list
-              if (quizState.loadState == QuizLoadState.loading)
-                const Expanded(
-                  child: Center(
-                    child: CircularProgressIndicator(color: Colors.black),
-                  ),
-                )
-              else if (quizState.loadState == QuizLoadState.error)
-                BwbCard(
-                  borderColor: BwbTheme.wrong,
-                  child: Text(
-                    'Error: ${quizState.errorMessage}',
-                    style: const TextStyle(color: BwbTheme.wrong),
-                  ),
-                )
-              else if (quizState.quizzes.isEmpty)
-                const BwbCard(child: Text('No quizzes available.'))
-              else
-                Expanded(
-                  child: ListView.separated(
-                    itemCount: quizState.quizzes.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 12),
-                    itemBuilder: (context, i) {
-                      final quiz = quizState.quizzes[i];
-                      final mins = quiz.durationSeconds ~/ 60;
-                      return BwbCard(
-                        child: Row(
-                          children: [
-                            // Quiz icon
-                            Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                border: Border.all(color: Colors.black),
-                                color: const Color(0xFFF5F5F5),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  '${i + 1}',
-                                  style: const TextStyle(
-                                    fontFamily: BwbTheme.fontFamily,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 18,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    quiz.title,
-                                    style: const TextStyle(
-                                      fontFamily: BwbTheme.fontFamily,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  if (quiz.description.isNotEmpty) ...[
-                                    const SizedBox(height: 3),
-                                    Text(
-                                      quiz.description,
-                                      style: const TextStyle(
-                                        color: BwbTheme.muted,
-                                        fontSize: 12,
-                                      ),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.topic_outlined,
-                                          size: 13, color: BwbTheme.muted),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        '${quiz.topicCount} topic(s)',
-                                        style: const TextStyle(
-                                            fontSize: 12,
-                                            color: BwbTheme.muted),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      const Icon(Icons.timer_outlined,
-                                          size: 13, color: BwbTheme.muted),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        '$mins min',
-                                        style: const TextStyle(
-                                            fontSize: 12,
-                                            color: BwbTheme.muted),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            BwbButton(
-                              label: 'View',
-                              onPressed: () {
-                                quizState.selectQuiz(quiz);
-                                Navigator.of(context).pushNamed('/topics');
-                              },
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
+              // Content
+              SliverPadding(
+                padding: const EdgeInsets.all(20),
+                sliver: SliverToBoxAdapter(
+                  child: _buildBody(quizState),
                 ),
+              ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildBody(QuizState quizState) {
+    if (quizState.loadState == QuizLoadState.loading) {
+      return SizedBox(
+        height: 200,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Lottie.asset('assets/json/cat_cloud.json', height: 100),
+              const SizedBox(height: 12),
+              const Text('Loading quizzes...', style: TextStyle(color: BwbTheme.muted)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (quizState.loadState == QuizLoadState.error) {
+      return Column(
+        children: [
+          Lottie.asset('assets/json/cat_error.json', height: 140),
+          const SizedBox(height: 12),
+          BwbCard(
+            borderColor: BwbTheme.wrong,
+            child: Column(
+              children: [
+                const Icon(Icons.wifi_off_rounded, color: BwbTheme.wrong, size: 28),
+                const SizedBox(height: 8),
+                Text(
+                  'Could not load quizzes.\n${quizState.errorMessage}',
+                  style: const TextStyle(color: BwbTheme.wrong, fontSize: 13),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                BwbButton(
+                  label: 'Retry',
+                  onPressed: () => context.read<QuizState>().loadQuizzes(),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (quizState.quizzes.isEmpty) {
+      return Column(
+        children: [
+          Lottie.asset('assets/json/cat_cloud.json', height: 130),
+          const SizedBox(height: 16),
+          const BwbCard(
+            child: Column(
+              children: [
+                Icon(Icons.inbox_outlined, size: 36, color: BwbTheme.muted),
+                SizedBox(height: 8),
+                Text(
+                  'No active quizzes at the moment.\nCheck back later!',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: BwbTheme.muted, fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Available Assessments',
+          style: TextStyle(
+            fontFamily: BwbTheme.fontFamily,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: BwbTheme.text,
+          ),
+        ),
+        const SizedBox(height: 14),
+        ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: quizState.quizzes.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (context, i) {
+            final quiz = quizState.quizzes[i];
+            final mins = quiz.durationSeconds ~/ 60;
+            return _QuizCard(
+              index: i,
+              title: quiz.title,
+              description: quiz.description,
+              topicCount: quiz.topicCount,
+              mins: mins,
+              onTap: () {
+                context.read<QuizState>().selectQuiz(quiz);
+                Navigator.of(context).pushNamed('/topics');
+              },
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _QuizCard extends StatefulWidget {
+  final int index;
+  final String title;
+  final String description;
+  final int topicCount;
+  final int mins;
+  final VoidCallback onTap;
+
+  const _QuizCard({
+    required this.index,
+    required this.title,
+    required this.description,
+    required this.topicCount,
+    required this.mins,
+    required this.onTap,
+  });
+
+  @override
+  State<_QuizCard> createState() => _QuizCardState();
+}
+
+class _QuizCardState extends State<_QuizCard> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: BwbTheme.primary.withValues(alpha: _hovered ? 0.18 : 0.06),
+            blurRadius: _hovered ? 18 : 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: widget.onTap,
+          onHover: (v) => setState(() => _hovered = v),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                // Index badge
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '${widget.index + 1}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.title,
+                        style: const TextStyle(
+                          fontFamily: BwbTheme.fontFamily,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: BwbTheme.text,
+                        ),
+                      ),
+                      if (widget.description.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          widget.description,
+                          style: const TextStyle(color: BwbTheme.muted, fontSize: 12),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          _Chip(icon: Icons.topic_outlined, label: '${widget.topicCount} Topics'),
+                          _Chip(icon: Icons.timer_outlined, label: '${widget.mins} min'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: BwbTheme.primary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _Chip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: BwbTheme.primary),
+          const SizedBox(width: 4),
+          Text(label, style: const TextStyle(fontSize: 11, color: BwbTheme.primary, fontWeight: FontWeight.w600)),
+        ],
       ),
     );
   }

@@ -47,5 +47,18 @@ class Attempt {
             .toList(),
       );
 
-  DateTime get deadlineDateTime => DateTime.parse(deadlineAt);
+  /// Safely parses [s] as a UTC [DateTime].
+  /// Handles empty strings, missing 'Z' suffix, and space-separated formats.
+  static DateTime _parseDate(String s) {
+    if (s.isEmpty) return DateTime.now().toUtc();
+    // Normalise: replace space separator with 'T' and ensure 'Z' suffix.
+    String normalised = s.trim().replaceFirst(' ', 'T');
+    if (!normalised.endsWith('Z') && !normalised.contains('+') && !RegExp(r'-\d{2}:\d{2}$').hasMatch(normalised)) {
+      normalised += 'Z';
+    }
+    return DateTime.tryParse(normalised)?.toUtc() ?? DateTime.now().toUtc();
+  }
+
+  DateTime get deadlineDateTime => _parseDate(deadlineAt);
+  DateTime get startedAtDateTime => _parseDate(startedAt);
 }

@@ -44,6 +44,7 @@ class _QuizScreenState extends State<QuizScreen> with WidgetsBindingObserver {
   void _handleViolation(String reason) {
     if (!mounted) return;
     final attemptState = context.read<AttemptState>();
+    // Increment FIRST so the dialog shows the updated count
     attemptState.recordViolation(reason);
 
     if (!_showingViolationDialog) {
@@ -51,26 +52,24 @@ class _QuizScreenState extends State<QuizScreen> with WidgetsBindingObserver {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (ctx) => LockdownOverlayDialog(
-          reason: reason,
-          violationCount: attemptState.violationCount,
-          maxViolations: AttemptState.maxViolations,
-          onDismiss: () {
-            _showingViolationDialog = false;
-            Navigator.pop(ctx);
-            // Re-enforce lockdown
-            LockdownService.instance.enableLockdown(onViolation: _handleViolation);
-          },
+        // Provide AttemptState so the dialog can watch live violation count
+        builder: (ctx) => ChangeNotifierProvider<AttemptState>.value(
+          value: attemptState,
+          child: LockdownOverlayDialog(
+            reason: reason,
+            onDismiss: () {
+              _showingViolationDialog = false;
+              Navigator.pop(ctx);
+              // Re-enforce lockdown
+              LockdownService.instance.enableLockdown(onViolation: _handleViolation);
+            },
+          ),
         ),
       ).then((_) {
         _showingViolationDialog = false;
       });
     }
-
-    if (attemptState.violationCount >= AttemptState.maxViolations) {
-      // Auto submit test
-      _autoSubmitOnViolation();
-    }
+    // Auto-submit is handled inside AttemptState.recordViolation()
   }
 
   Future<void> _autoSubmitOnViolation() async {
@@ -146,7 +145,7 @@ class _QuizScreenState extends State<QuizScreen> with WidgetsBindingObserver {
 
     final questions = attempt.questions;
     final deadlineDt = attempt.deadlineDateTime;
-    final startedDt = DateTime.parse(attempt.startedAt);
+    final startedDt = attempt.startedAtDateTime;
     final totalSeconds = deadlineDt.difference(startedDt).inSeconds.abs();
 
     return PopScope(
@@ -213,9 +212,9 @@ class _QuizScreenState extends State<QuizScreen> with WidgetsBindingObserver {
 
   Widget _buildPager(AttemptState state, int count) {
     return Container(
-      color: Colors.white,
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
       decoration: const BoxDecoration(
+        color: Colors.white,
         border: Border(top: BorderSide(color: Colors.black12)),
       ),
       child: SingleChildScrollView(

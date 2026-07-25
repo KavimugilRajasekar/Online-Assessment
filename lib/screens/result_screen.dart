@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:lottie/lottie.dart';
+import 'package:provider/provider.dart';
 import '../models/question.dart';
 import '../models/result.dart';
 import '../services/attempt_service.dart';
@@ -9,11 +9,45 @@ import '../state/attempt_state.dart';
 import '../state/quiz_state.dart';
 import '../theme.dart';
 import '../widgets/bwb_button.dart';
-import '../widgets/bwb_card.dart';
 import '../widgets/code_block_view.dart';
 
-class ResultScreen extends StatelessWidget {
+class ResultScreen extends StatefulWidget {
   const ResultScreen({super.key});
+
+  @override
+  State<ResultScreen> createState() => _ResultScreenState();
+}
+
+class _ResultScreenState extends State<ResultScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _lottieController;
+  bool _showContent = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _lottieController = AnimationController(vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _lottieController.dispose();
+    super.dispose();
+  }
+
+  Color _scoreColor(double pct) {
+    if (pct >= 75) return const Color(0xFF10B981);
+    if (pct >= 40) return const Color(0xFFF59E0B);
+    return const Color(0xFFEF4444);
+  }
+
+  String _scoreLabel(double pct) {
+    if (pct >= 90) return 'Excellent!';
+    if (pct >= 75) return 'Great Job!';
+    if (pct >= 50) return 'Good Effort!';
+    if (pct >= 40) return 'Keep Practicing!';
+    return 'Better Luck Next Time!';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -21,94 +55,153 @@ class ResultScreen extends StatelessWidget {
     final result = state.result;
 
     if (result == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
     final scorePercent = result.totalMarks > 0
         ? (result.score / result.totalMarks * 100)
         : 0.0;
+    final scoreColor = _scoreColor(scorePercent);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Results', style: TextStyle(fontWeight: FontWeight.bold)),
-        automaticallyImplyLeading: false,
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            // Lottie Animation
-            Center(
-              child: SizedBox(
-                height: 150,
-                child: Lottie.asset('assets/json/present.json'),
+      body: CustomScrollView(
+        slivers: [
+          // Header
+          SliverToBoxAdapter(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [scoreColor.withValues(alpha: 0.85), scoreColor],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+                  child: Column(
+                    children: [
+                      // Lottie present animation
+                      SizedBox(
+                        height: 150,
+                        child: Lottie.asset(
+                          'assets/json/present.json',
+                          controller: _lottieController,
+                          onLoaded: (composition) {
+                            _lottieController
+                              ..duration = composition.duration
+                              ..forward().whenComplete(() {
+                                if (mounted) {
+                                  setState(() => _showContent = true);
+                                  _lottieController.repeat(
+                                      min: 0.7, max: 1.0, reverse: true);
+                                }
+                              });
+                          },
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _scoreLabel(scorePercent),
+                        style: const TextStyle(
+                          fontFamily: BwbTheme.fontFamily,
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      // Score arc card
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 32, vertical: 20),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.1),
+                              blurRadius: 20,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            _ScoreStat(
+                              label: 'Your Score',
+                              value: result.score.toStringAsFixed(1),
+                              color: scoreColor,
+                            ),
+                            Container(
+                                height: 50, width: 1, color: BwbTheme.border),
+                            _ScoreStat(
+                              label: 'Total Marks',
+                              value: result.totalMarks.toStringAsFixed(1),
+                              color: BwbTheme.muted,
+                            ),
+                            Container(
+                                height: 50, width: 1, color: BwbTheme.border),
+                            _ScoreStat(
+                              label: 'Percentage',
+                              value: '${scorePercent.toStringAsFixed(0)}%',
+                              color: scoreColor,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-            const SizedBox(height: 16),
-            // Score card
-            BwbCard(
-              padding: const EdgeInsets.all(24),
+          ),
+
+          // Answer review
+          SliverPadding(
+            padding: const EdgeInsets.all(20),
+            sliver: SliverToBoxAdapter(
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Your Score',
-                    style: TextStyle(fontSize: 14, color: BwbTheme.muted),
+                  const Row(
+                    children: [
+                      Icon(Icons.fact_check_outlined,
+                          color: BwbTheme.primary, size: 20),
+                      SizedBox(width: 8),
+                      Text(
+                        'Answer Review',
+                        style: TextStyle(
+                          fontFamily: BwbTheme.fontFamily,
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${result.score.toStringAsFixed(1)} / ${result.totalMarks.toStringAsFixed(1)}',
-                    style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${scorePercent.toStringAsFixed(0)}%',
-                    style: const TextStyle(fontSize: 16, color: BwbTheme.muted),
+                  const SizedBox(height: 14),
+                  ...result.answers.map((ar) => _buildAnswerCard(ar)),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: BwbButton(
+                      label: 'Back to Home',
+                      onPressed: () => Navigator.of(context)
+                          .pushNamedAndRemoveUntil('/', (r) => false),
+                    ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 20),
-            const Text(
-              'Per-Question Results',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            ...result.answers.map((ar) => _buildAnswerCard(ar)),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: BwbButton(
-                label: 'Retake Quiz',
-                onPressed: () => _retake(context),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
-  }
-
-  Future<void> _retake(BuildContext context) async {
-    final quizState = context.read<QuizState>();
-    final attemptState = context.read<AttemptState>();
-    final quiz = quizState.selectedQuiz;
-    attemptState.clear();
-    await AttemptStore.instance.clear();
-    if (quiz != null && context.mounted) {
-      try {
-        final attempt = await AttemptService.instance.startOrResumeAttempt(quiz.id);
-        await AttemptStore.instance.save(quiz.id, attempt.id);
-        if (context.mounted) {
-          context.read<AttemptState>().setAttempt(attempt);
-          Navigator.of(context).pushReplacementNamed('/quiz');
-        }
-      } catch (e) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text('Error: $e')));
-        }
-      }
-    }
   }
 
   Widget _buildAnswerCard(AnswerResult ar) {
@@ -117,97 +210,179 @@ class ResultScreen extends StatelessWidget {
     final isCoding = q.qtype == QuestionType.coding;
 
     Color borderColor;
+    Color statusBg;
     Widget statusIcon;
+
     if (isCoding) {
       borderColor = BwbTheme.border;
-      statusIcon = const Icon(Icons.code, size: 18, color: BwbTheme.muted);
+      statusBg = const Color(0xFFF1F5F9);
+      statusIcon =
+          const Icon(Icons.code, size: 16, color: BwbTheme.muted);
     } else if (a.isCorrect == true) {
       borderColor = BwbTheme.correct;
-      statusIcon = const Icon(Icons.check_circle, size: 18, color: BwbTheme.correct);
+      statusBg = const Color(0xFFD1FAE5);
+      statusIcon = const Icon(Icons.check_circle_rounded,
+          size: 16, color: BwbTheme.correct);
     } else {
       borderColor = BwbTheme.wrong;
-      statusIcon = const Icon(Icons.cancel, size: 18, color: BwbTheme.wrong);
+      statusBg = const Color(0xFFFEE2E2);
+      statusIcon =
+          const Icon(Icons.cancel_rounded, size: 16, color: BwbTheme.wrong);
     }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: BwbCard(
-        borderColor: borderColor,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(q.text,
-                      style: const TextStyle(fontSize: 14, height: 1.4)),
-                ),
-                const SizedBox(width: 8),
-                statusIcon,
-              ],
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border(left: BorderSide(color: borderColor, width: 4)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
-            if (q.code.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              CodeBlockView(code: q.code),
-            ],
-            if (isCoding) ...[
-              const SizedBox(height: 8),
-              const Text('Your solution:',
-                  style: TextStyle(fontSize: 12, color: BwbTheme.muted)),
-              const SizedBox(height: 4),
-              a.codeText.isNotEmpty
-                  ? CodeBlockView(code: a.codeText)
-                  : const Text('(no code submitted)',
-                      style: TextStyle(color: BwbTheme.muted, fontSize: 12)),
-              const SizedBox(height: 4),
-              const Text(
-                'Note: Coding round is not auto-graded in v1.',
-                style: TextStyle(fontSize: 11, color: BwbTheme.muted),
-              ),
-            ],
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                if (!isCoding)
-                  Text(
-                    a.isCorrect == true
-                        ? 'Correct'
-                        : (a.selectedChoiceIds.isEmpty
-                            ? 'Not answered'
-                            : 'Incorrect'),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: a.isCorrect == true
-                          ? BwbTheme.correct
-                          : (a.selectedChoiceIds.isEmpty
-                              ? BwbTheme.muted
-                              : BwbTheme.wrong),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  )
-                else
-                  const SizedBox.shrink(),
-                Text(
-                  '${a.marksAwarded.toStringAsFixed(1)} / ${q.marks.toStringAsFixed(1)} marks',
-                  style: const TextStyle(fontSize: 12, color: BwbTheme.muted),
-                ),
-              ],
-            ),
-            if (q.explanation.isNotEmpty && !isCoding) ...[
-              const Divider(height: 16),
-              Text(
-                q.explanation,
-                style: const TextStyle(
-                    fontSize: 12,
-                    color: BwbTheme.muted,
-                    fontStyle: FontStyle.italic),
-              ),
-            ],
           ],
         ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(q.text,
+                        style: const TextStyle(fontSize: 14, height: 1.4)),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: statusBg,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: statusIcon,
+                  ),
+                ],
+              ),
+              if (q.code.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                CodeBlockView(code: q.code),
+              ],
+              if (isCoding) ...[
+                const SizedBox(height: 8),
+                const Text('Your solution:',
+                    style: TextStyle(fontSize: 12, color: BwbTheme.muted)),
+                const SizedBox(height: 4),
+                a.codeText.isNotEmpty
+                    ? CodeBlockView(code: a.codeText)
+                    : const Text('(no code submitted)',
+                        style:
+                            TextStyle(color: BwbTheme.muted, fontSize: 12)),
+                const SizedBox(height: 4),
+                const Text(
+                  'Coding answers are reviewed manually.',
+                  style: TextStyle(fontSize: 11, color: BwbTheme.muted),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  if (!isCoding)
+                    Text(
+                      a.isCorrect == true
+                          ? 'Correct'
+                          : (a.selectedChoiceIds.isEmpty
+                              ? 'Not answered'
+                              : 'Incorrect'),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: a.isCorrect == true
+                            ? BwbTheme.correct
+                            : (a.selectedChoiceIds.isEmpty
+                                ? BwbTheme.muted
+                                : BwbTheme.wrong),
+                      ),
+                    )
+                  else
+                    const SizedBox.shrink(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${a.marksAwarded.toStringAsFixed(1)} / ${q.marks.toStringAsFixed(1)} marks',
+                      style: const TextStyle(
+                          fontSize: 12,
+                          color: BwbTheme.primary,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+              if (q.explanation.isNotEmpty && !isCoding) ...[
+                const Divider(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.lightbulb_outline,
+                        size: 14, color: Color(0xFFF59E0B)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        q.explanation,
+                        style: const TextStyle(
+                            fontSize: 12,
+                            color: BwbTheme.muted,
+                            fontStyle: FontStyle.italic),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
+    );
+  }
+}
+
+class _ScoreStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _ScoreStat(
+      {required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 26,
+            fontWeight: FontWeight.bold,
+            color: color,
+            fontFamily: BwbTheme.fontFamily,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(label,
+            style: const TextStyle(fontSize: 11, color: BwbTheme.muted)),
+      ],
     );
   }
 }
