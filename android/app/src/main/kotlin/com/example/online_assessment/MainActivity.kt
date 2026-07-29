@@ -11,6 +11,8 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
 
     private val channelName = "online_assessment/lockdown"
+    private lateinit var channel: MethodChannel
+    private var lockdownActive: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -22,20 +24,36 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "enable" -> {
-                        applyLockdownFlags()
-                        result.success(true)
-                    }
-                    "disable" -> {
-                        clearLockdownFlags()
-                        result.success(true)
-                    }
-                    else -> result.notImplemented()
+        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
+        channel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "enable" -> {
+                    applyLockdownFlags()
+                    lockdownActive = true
+                    result.success(true)
                 }
+                "disable" -> {
+                    clearLockdownFlags()
+                    lockdownActive = false
+                    result.success(true)
+                }
+                else -> result.notImplemented()
             }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // If the window loses focus while lockdown is active, that's likely
+        // due to an overlay, notification shade, or app switch. Notify Dart
+        // so it can record a violation and show the overlay UI.
+        try {
+            if (!hasFocus && ::channel.isInitialized && lockdownActive) {
+                channel.invokeMethod("violation", "Window lost focus - possible overlay or notification shade")
+            }
+        } catch (e: Exception) {
+            // Ignore any IPC errors
+        }
     }
 
     /**
@@ -46,7 +64,9 @@ class MainActivity : FlutterActivity() {
      *     navigation bar) hide and re-hide automatically when the user
      *     swipes, which also suppresses the notification shade / Quick
      *     Settings pull-down.
-     *   - SYSTEM_UI_FLAG_LAYOUT_* keeps our layout stable while bars hide.
+     *   - Attempt startLockTask(): request a pinned/locked task session where
+     *     available (requires device owner / provisioning). Failures are
+     *     caught and ignored so the app still works on normal devices.
      */
     private fun applyLockdownFlags() {
         runOnUiThread {
@@ -73,6 +93,14 @@ class MainActivity : FlutterActivity() {
                     )
                 }
             }
+
+            // Try to engage Lock Task (kiosk) mode. This only succeeds on
+            // devices where the app is a device owner / provisioned for this.
+            try {
+                startLockTask()
+            } catch (e: Exception) {
+                // Not a device owner or not allowed — ignore.
+            }
         }
     }
 
@@ -88,6 +116,13 @@ class MainActivity : FlutterActivity() {
             } else {
                 @Suppress("DEPRECATION")
                 window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+            }
+
+            // Stop lock task if we started it
+            try {
+                stopLockTask()
+            } catch (e: Exception) {
+                // ignore
             }
         }
     }

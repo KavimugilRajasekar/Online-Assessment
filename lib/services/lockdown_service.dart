@@ -8,7 +8,22 @@ import 'package:flutter/services.dart';
 typedef ViolationCallback = void Function(String reason);
 
 class LockdownService {
-  LockdownService._();
+  LockdownService._() {
+    // Listen for native-side violation callbacks (Android/iOS). When the
+    // platform detects a window-focus loss or system overlay it can call
+    // `invokeMethod('violation', reason)` which is forwarded here.
+    try {
+      _channel.setMethodCallHandler((call) async {
+        if (call.method == 'violation') {
+          final reason = (call.arguments as String?) ?? 'Native security event';
+          triggerViolation(reason);
+        }
+      });
+    } catch (e) {
+      // Ignore — platforms that don't support incoming calls will throw.
+      debugPrint('Lockdown channel handler init failed: $e');
+    }
+  }
   static final LockdownService instance = LockdownService._();
 
   bool _isLockdownActive = false;
