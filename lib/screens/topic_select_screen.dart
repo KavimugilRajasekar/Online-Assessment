@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 import '../models/quiz.dart';
@@ -239,13 +240,15 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
                                 const SizedBox(height: 14),
                                 TextFormField(
                                   controller: _idController,
+                                  keyboardType: TextInputType.number,
+                                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                                   decoration: const InputDecoration(
-                                    labelText: 'Roll Number / Email ID *',
+                                    labelText: 'Roll Number *',
                                     prefixIcon: Icon(Icons.badge_outlined),
                                   ),
                                   validator: (val) =>
                                       val == null || val.trim().isEmpty
-                                      ? 'Please enter Roll No or Email'
+                                      ? 'Please enter Roll Number'
                                       : null,
                                 ),
                               ],
