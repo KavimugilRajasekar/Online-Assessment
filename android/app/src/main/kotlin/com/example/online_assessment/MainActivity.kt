@@ -2,8 +2,13 @@ package com.example.online_assessment
 
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -54,6 +59,70 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             // Ignore any IPC errors
         }
+    }
+
+    // Receiver to detect screen-off events (approximate power button presses).
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            try {
+                if (::channel.isInitialized && lockdownActive) {
+                    if (intent?.action == Intent.ACTION_SCREEN_OFF) {
+                        channel.invokeMethod("violation", "Screen turned off - possible power button")
+                    }
+                }
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        try {
+            registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+        } catch (e: Exception) {
+            // ignore
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        try {
+            unregisterReceiver(screenReceiver)
+        } catch (e: Exception) {
+            // ignore
+        }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (lockdownActive) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_VOLUME_DOWN,
+                KeyEvent.KEYCODE_VOLUME_UP,
+                KeyEvent.KEYCODE_VOLUME_MUTE,
+                KeyEvent.KEYCODE_POWER -> {
+                    // consume the event to prevent volume changes; power may not
+                    // be delivered on most devices but handle if it is.
+                    return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        if (lockdownActive) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_VOLUME_DOWN,
+                KeyEvent.KEYCODE_VOLUME_UP,
+                KeyEvent.KEYCODE_VOLUME_MUTE,
+                KeyEvent.KEYCODE_POWER -> {
+                    // consume key up as well
+                    return true
+                }
+            }
+        }
+        return super.onKeyUp(keyCode, event)
     }
 
     /**
