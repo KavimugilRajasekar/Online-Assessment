@@ -264,7 +264,7 @@ class _ResultScreenState extends State<ResultScreen>
                   ),
                 ],
               ),
-              if (q.code.isNotEmpty) ...[
+              if (q.code.isNotEmpty && !isCoding) ...[
                 const SizedBox(height: 8),
                 CodeBlockView(code: q.code),
               ],

@@ -85,4 +85,28 @@ class AttemptService {
     return QuizResult.fromJson(
         data is Map<String, dynamic> ? data : Map<String, dynamic>.from(data as Map));
   }
+
+  /// Submits an attempt purely by its ID — no in-memory [Attempt] object
+  /// needed. Used by the stale-attempt reconciler on app resume / home load.
+  ///
+  /// Returns true  → server accepted the submit (2xx).
+  /// Returns false → attempt was already submitted / not found (400, 404, 409)
+  ///                  — caller should stop retrying and clean up local store.
+  /// Throws        → network / 5xx error — caller should retry with backoff.
+  Future<bool> submitById(String attemptId) async {
+    try {
+      await ApiClient.instance.post('/api/attempts/$attemptId/submit/');
+      return true;
+    } on ApiException catch (e) {
+      // 400/404/409/410 all mean the server already handled this attempt —
+      // no point retrying.
+      if (e.statusCode == 400 ||
+          e.statusCode == 404 ||
+          e.statusCode == 409 ||
+          e.statusCode == 410) {
+        return false;
+      }
+      rethrow; // 5xx / timeout → let caller retry
+    }
+  }
 }

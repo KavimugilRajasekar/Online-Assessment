@@ -26,7 +26,7 @@ class _CodingScreenState extends State<CodingScreen> {
     _question = ModalRoute.of(context)?.settings.arguments as Question?;
     final state = context.read<AttemptState>();
     final initial =
-        state.codeAnswers[_question?.id] ?? _question?.starterCode ?? '';
+        state.codeAnswers[_question?.id] ?? '';
     _controller = TextEditingController(text: initial);
     _controller.addListener(_onTextChanged);
   }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 import '../state/quiz_state.dart';
+import '../state/attempt_state.dart';
 import '../theme.dart';
 import '../widgets/bwb_card.dart';
 
@@ -34,6 +35,9 @@ class _HomeScreenState extends State<HomeScreen>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<QuizState>().loadQuizzes();
+      // Silently submit any attempt that was left in_progress on the server
+      // (app killed mid-quiz, timer expired while offline, etc.)
+      context.read<AttemptState>().reconcileStaleAttempts();
     });
 
     // Background polling timer every 3 seconds
