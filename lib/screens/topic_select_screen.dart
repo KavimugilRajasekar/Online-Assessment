@@ -288,6 +288,56 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
                           ),
                           const SizedBox(height: 20),
 
+                          // Interface Guide section
+                          _SectionLabel(label: 'Quiz Guide'),
+                          const SizedBox(height: 10),
+                          BwbCard(
+                            padding: const EdgeInsets.all(18),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Screenshot image
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Image.asset(
+                                    'assets/screenshots/template1.png',
+                                    width: double.infinity,
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                // Coloured legend points
+                                const _LegendPoint(
+                                  number: '1',
+                                  color: Color(0xFF800000), // Maroon
+                                  text:
+                                      'Icon to jump between topics (if applicable).',
+                                ),
+                                const SizedBox(height: 10),
+                                const _LegendPoint(
+                                  number: '2',
+                                  color: Color(0xFFDC2626), // Red
+                                  text: 'Questions can be flagged for review.',
+                                ),
+                                const SizedBox(height: 10),
+                                const _LegendPoint(
+                                  number: '3',
+                                  color: Color(0xFF1E3A8A), // Navy Blue
+                                  text:
+                                      'If a question has multiple correct options, you are expected to select appropriately (if applicable).',
+                                ),
+                                const SizedBox(height: 10),
+                                const _LegendPoint(
+                                  number: '4',
+                                  color: Color(0xFFD97706), // Yellow/Amber
+                                  text:
+                                      'Field for selecting options (for MCQ-based questions).',
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+
                           // Topics
                           if (quizState.topics.isNotEmpty) ...[
                             _SectionLabel(label: 'Topics Covered'),
@@ -456,6 +506,56 @@ class _Instruction extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _LegendPoint extends StatelessWidget {
+  final Color color;
+  final String text;
+  final String number;
+  const _LegendPoint({
+    required this.color,
+    required this.text,
+    required this.number,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 22,
+          height: 22,
+          margin: const EdgeInsets.only(top: 1),
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            number,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              height: 1,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontSize: 13,
+              color: BwbTheme.muted,
+              height: 1.5,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -68,6 +68,7 @@ flutter:
   assets:
     - assets/icons/online_assessment_logo.png
     - assets/json/
+    - assets/screenshots/
 
   fonts:
     - family: Comfortaa
