@@ -155,6 +155,23 @@ class _HomeScreenState extends State<HomeScreen>
                 padding: const EdgeInsets.all(20),
                 sliver: SliverToBoxAdapter(child: _buildBody(quizState)),
               ),
+
+              // Footer
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 24, top: 8),
+                  child: Text(
+                    'Dev by Kavi',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade400,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: 0.4,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
