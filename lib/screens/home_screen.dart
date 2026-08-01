@@ -4,7 +4,6 @@ import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 import '../state/quiz_state.dart';
 import '../theme.dart';
-import '../widgets/bwb_button.dart';
 import '../widgets/bwb_card.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -253,6 +252,10 @@ class _HomeScreenState extends State<HomeScreen>
           itemBuilder: (context, i) {
             final quiz = quizState.quizzes[i];
             final mins = quiz.durationSeconds ~/ 60;
+            // A card is greyed out when this device has attempted it
+            // but the admin hasn't published the answer key yet.
+            final attempted =
+                quizState.isAttempted(quiz.id) && !quiz.answersPosted;
             return _QuizCard(
               index: i,
               title: quiz.title,
@@ -260,6 +263,7 @@ class _HomeScreenState extends State<HomeScreen>
               topicCount: quiz.topicCount,
               mins: mins,
               answersPosted: quiz.answersPosted,
+              attempted: attempted,
               onTap: () {
                 if (quiz.answersPosted) {
                   Navigator.of(context).pushNamed(
@@ -286,6 +290,9 @@ class _QuizCard extends StatefulWidget {
   final int topicCount;
   final int mins;
   final bool answersPosted;
+  /// True when this device has already submitted this quiz and the
+  /// answer key has NOT yet been published by the admin.
+  final bool attempted;
   final VoidCallback onTap;
 
   const _QuizCard({
@@ -295,6 +302,7 @@ class _QuizCard extends StatefulWidget {
     required this.topicCount,
     required this.mins,
     required this.answersPosted,
+    required this.attempted,
     required this.onTap,
   });
 
@@ -307,14 +315,34 @@ class _QuizCardState extends State<_QuizCard> {
 
   @override
   Widget build(BuildContext context) {
-    final isPosted = widget.answersPosted;
-    final cardBg = isPosted ? const Color(0xFFECFDF5) : Colors.white;
-    final borderSide = isPosted
-        ? Border.all(color: const Color(0xFFa7f3d0), width: 1.5)
-        : null;
-    final iconGradient = isPosted
-        ? const LinearGradient(colors: [Color(0xFF059669), Color(0xFF10B981)])
-        : const LinearGradient(colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)]);
+    final isPosted   = widget.answersPosted;
+    final isAttempted = widget.attempted && !isPosted; // grey only while waiting
+
+    // ── Colour tokens ──────────────────────────────────────────────────────────
+    final cardBg = isAttempted
+        ? const Color(0xFFF3F4F6)   // cool grey
+        : isPosted
+            ? const Color(0xFFECFDF5) // mint green
+            : Colors.white;
+
+    final borderSide = isAttempted
+        ? Border.all(color: const Color(0xFFD1D5DB), width: 1.5)
+        : isPosted
+            ? Border.all(color: const Color(0xFFa7f3d0), width: 1.5)
+            : null;
+
+    final shadowColor = isAttempted
+        ? Colors.black
+        : isPosted
+            ? const Color(0xFF10B981)
+            : BwbTheme.primary;
+
+    final titleColor = isAttempted ? const Color(0xFF9CA3AF) : BwbTheme.text;
+    final arrowColor = isAttempted
+        ? const Color(0xFFD1D5DB)
+        : isPosted
+            ? const Color(0xFF059669)
+            : BwbTheme.primary;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
@@ -323,9 +351,8 @@ class _QuizCardState extends State<_QuizCard> {
         border: borderSide,
         boxShadow: [
           BoxShadow(
-            color: (isPosted ? const Color(0xFF10B981) : BwbTheme.primary)
-                .withValues(alpha: _hovered ? 0.18 : 0.06),
-            blurRadius: _hovered ? 18 : 8,
+            color: shadowColor.withValues(alpha: _hovered && !isAttempted ? 0.18 : 0.06),
+            blurRadius: _hovered && !isAttempted ? 18 : 8,
             offset: const Offset(0, 4),
           ),
         ],
@@ -335,8 +362,9 @@ class _QuizCardState extends State<_QuizCard> {
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: widget.onTap,
-          onHover: (v) => setState(() => _hovered = v),
+          // Greyed-out cards are not tappable
+          onTap: isAttempted ? null : widget.onTap,
+          onHover: isAttempted ? null : (v) => setState(() => _hovered = v),
           child: Padding(
             padding: const EdgeInsets.all(18),
             child: Row(
@@ -348,37 +376,60 @@ class _QuizCardState extends State<_QuizCard> {
                       // Title
                       Text(
                         widget.title,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontFamily: BwbTheme.fontFamily,
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
-                          color: BwbTheme.text,
+                          color: titleColor,
                         ),
                       ),
-                      // "Answer Key Available" badge — directly below title
-                      if (isPosted) ...[
+
+                      // ── Status badge ─────────────────────────────────────
+                      if (isAttempted) ...[
                         const SizedBox(height: 5),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 9,
-                            vertical: 4,
-                          ),
+                              horizontal: 9, vertical: 4),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFD1FAE5),
+                            color: const Color(0xFFE5E7EB),
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
-                              color: const Color(0xFF6EE7B7),
-                              width: 1,
-                            ),
+                                color: const Color(0xFFD1D5DB), width: 1),
                           ),
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
-                                Icons.menu_book_rounded,
-                                size: 11,
-                                color: Color(0xFF047857),
+                              Icon(Icons.hourglass_top_rounded,
+                                  size: 11, color: Color(0xFF6B7280)),
+                              SizedBox(width: 5),
+                              Text(
+                                'Waiting for Answer Key...',
+                                style: TextStyle(
+                                  color: Color(0xFF6B7280),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.2,
+                                ),
                               ),
+                            ],
+                          ),
+                        ),
+                      ] else if (isPosted) ...[
+                        const SizedBox(height: 5),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 9, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFD1FAE5),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                                color: const Color(0xFF6EE7B7), width: 1),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.menu_book_rounded,
+                                  size: 11, color: Color(0xFF047857)),
                               SizedBox(width: 5),
                               Text(
                                 'Answer Key Available',
@@ -393,12 +444,15 @@ class _QuizCardState extends State<_QuizCard> {
                           ),
                         ),
                       ],
+
                       if (widget.description.isNotEmpty) ...[
                         const SizedBox(height: 3),
                         Text(
                           widget.description,
-                          style: const TextStyle(
-                            color: BwbTheme.muted,
+                          style: TextStyle(
+                            color: isAttempted
+                                ? const Color(0xFFD1D5DB)
+                                : BwbTheme.muted,
                             fontSize: 12,
                           ),
                         ),
@@ -410,10 +464,12 @@ class _QuizCardState extends State<_QuizCard> {
                           _Chip(
                             icon: Icons.topic_outlined,
                             label: '${widget.topicCount} Topics',
+                            muted: isAttempted,
                           ),
                           _Chip(
                             icon: Icons.timer_outlined,
                             label: '${widget.mins} min',
+                            muted: isAttempted,
                           ),
                         ],
                       ),
@@ -422,9 +478,11 @@ class _QuizCardState extends State<_QuizCard> {
                 ),
                 const SizedBox(width: 8),
                 Icon(
-                  Icons.arrow_forward_ios_rounded,
+                  isAttempted
+                      ? Icons.lock_outline_rounded
+                      : Icons.arrow_forward_ios_rounded,
                   size: 16,
-                  color: isPosted ? const Color(0xFF059669) : BwbTheme.primary,
+                  color: arrowColor,
                 ),
               ],
             ),
@@ -438,26 +496,28 @@ class _QuizCardState extends State<_QuizCard> {
 class _Chip extends StatelessWidget {
   final IconData icon;
   final String label;
-  const _Chip({required this.icon, required this.label});
+  final bool muted;
+  const _Chip({required this.icon, required this.label, this.muted = false});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FF),
+        color: muted ? const Color(0xFFE5E7EB) : const Color(0xFFEFF6FF),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 11, color: BwbTheme.primary),
+          Icon(icon, size: 11,
+              color: muted ? const Color(0xFF9CA3AF) : BwbTheme.primary),
           const SizedBox(width: 4),
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 11,
-              color: BwbTheme.primary,
+              color: muted ? const Color(0xFF9CA3AF) : BwbTheme.primary,
               fontWeight: FontWeight.w600,
             ),
           ),

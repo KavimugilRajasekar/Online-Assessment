@@ -55,6 +55,9 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
         candidateId: _idController.text.trim(),
       );
       await AttemptStore.instance.save(quiz.id, attempt.id);
+      // Mark this quiz as attempted in the live QuizState so the card
+      // is greyed-out immediately when the user returns to the home screen.
+      if (mounted) context.read<QuizState>().markAttempted(quiz.id);
       if (mounted) {
         context.read<AttemptState>().setAttempt(attempt);
         Navigator.of(context).pushNamed('/quiz');
