@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,22 +7,7 @@ import 'package:flutter/services.dart';
 typedef ViolationCallback = void Function(String reason);
 
 class LockdownService {
-  LockdownService._() {
-    // Listen for native-side violation callbacks (Android/iOS). When the
-    // platform detects a window-focus loss or system overlay it can call
-    // `invokeMethod('violation', reason)` which is forwarded here.
-    try {
-      _channel.setMethodCallHandler((call) async {
-        if (call.method == 'violation') {
-          final reason = (call.arguments as String?) ?? 'Native security event';
-          triggerViolation(reason);
-        }
-      });
-    } catch (e) {
-      // Ignore — platforms that don't support incoming calls will throw.
-      debugPrint('Lockdown channel handler init failed: $e');
-    }
-  }
+  LockdownService._();
   static final LockdownService instance = LockdownService._();
 
   bool _isLockdownActive = false;
@@ -121,15 +105,12 @@ class LockdownService {
     }
   }
 
-  /// Handle App Lifecycle state transitions (mobile/desktop overlay or switch detection).
+  /// Handle App Lifecycle state transitions.
+  /// Only triggers a violation when the user actually leaves the app (paused).
   void handleLifecycleState(AppLifecycleState state) {
     if (!_isLockdownActive) return;
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused ||
-        state == AppLifecycleState.hidden) {
-      triggerViolation(
-        'System overlay, app switch, or notification panel detected!',
-      );
+    if (state == AppLifecycleState.paused) {
+      triggerViolation('You left the app during the assessment!');
     }
   }
 }

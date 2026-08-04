@@ -5,10 +5,6 @@ import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -49,48 +45,22 @@ class MainActivity : FlutterActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        // If the window loses focus while lockdown is active, that's likely
-        // due to an overlay, notification shade, or app switch. Notify Dart
-        // so it can record a violation and show the overlay UI.
-        try {
-            if (!hasFocus && ::channel.isInitialized && lockdownActive) {
-                channel.invokeMethod("violation", "Window lost focus - possible overlay or notification shade")
-            }
-        } catch (e: Exception) {
-            // Ignore any IPC errors
-        }
-    }
-
-    // Receiver to detect screen-off events (approximate power button presses).
-    private val screenReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            try {
-                if (::channel.isInitialized && lockdownActive) {
-                    if (intent?.action == Intent.ACTION_SCREEN_OFF) {
-                        channel.invokeMethod("violation", "Screen turned off - possible power button")
-                    }
-                }
-            } catch (e: Exception) {
-                // ignore
-            }
-        }
+        // Window focus changes (overlays, notification shade) no longer
+        // trigger a violation — only leaving the app counts.
     }
 
     override fun onResume() {
         super.onResume()
-        try {
-            registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
-        } catch (e: Exception) {
-            // ignore
-        }
-    }
-
-    override fun onPause() {
-        super.onPause()
-        try {
-            unregisterReceiver(screenReceiver)
-        } catch (e: Exception) {
-            // ignore
+        // Re-engage screen pinning if lockdown is active and the task is no
+        // longer pinned (e.g. user dismissed the pin prompt or returned from
+        // background). This ensures the pin dialog re-appears every time the
+        // app comes back to the foreground during a quiz.
+        if (lockdownActive) {
+            try {
+                startLockTask()
+            } catch (e: Exception) {
+                // Ignore — not a device owner or already pinned.
+            }
         }
     }
 

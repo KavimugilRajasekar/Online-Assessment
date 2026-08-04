@@ -167,16 +167,13 @@ class _QuizScreenState extends State<QuizScreen>
           barrierColor: Colors.black87,
           barrierDismissible: false,
           transitionDuration: const Duration(milliseconds: 200),
-          pageBuilder: (navCtx, _, _) => ChangeNotifierProvider<AttemptState>.value(
-            value: attemptState,
-            child: LockdownOverlayDialog(
-              reason: reason,
-              onDismiss: () {
-                _showingViolationDialog = false;
-                Navigator.of(navCtx, rootNavigator: true).pop();
-                LockdownService.instance.enableLockdown(onViolation: _handleViolation);
-              },
-            ),
+          pageBuilder: (navCtx, _, _) => LockdownOverlayDialog(
+            reason: reason,
+            onDismiss: () {
+              _showingViolationDialog = false;
+              Navigator.of(navCtx, rootNavigator: true).pop();
+              LockdownService.instance.enableLockdown(onViolation: _handleViolation);
+            },
           ),
         ),
       ).then((_) => _showingViolationDialog = false);

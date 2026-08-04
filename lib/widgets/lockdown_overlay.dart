@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
-import 'package:provider/provider.dart';
-import '../state/attempt_state.dart';
 import '../theme.dart';
 
 class LockdownOverlayDialog extends StatefulWidget {
@@ -95,15 +93,6 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
 
   @override
   Widget build(BuildContext context) {
-    // Read live violation state so counter updates without rebuilding
-    final attemptState = context.watch<AttemptState>();
-    final violationCount = attemptState.violationCount;
-    final maxViolations = AttemptState.maxViolations;
-    final isFinalWarning = violationCount >= maxViolations;
-
-    // Show "SUSPENDED" badge
-    // (currently always visible when on a final warning or while suspended)
-
     return PopScope(
       canPop: false,
       // Stack-based overlay so the warning card sits on top of a fully
@@ -117,7 +106,7 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
             child: SingleChildScrollView(
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-                child: _buildCard(isFinalWarning),
+                child: _buildCard(),
               ),
             ),
           ),
@@ -126,23 +115,21 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
     );
   }
 
-  Widget _buildCard(
-    bool isFinalWarning,
-  ) {
+  Widget _buildCard() {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-            color: (isFinalWarning ? const Color(0xFF7F1D1D) : BwbTheme.wrong).withValues(alpha: 0.15),
+            color: BwbTheme.wrong.withValues(alpha: 0.15),
             blurRadius: 40,
             spreadRadius: 10,
             offset: const Offset(0, 10),
           ),
         ],
         border: Border.all(
-          color: (isFinalWarning ? const Color(0xFF7F1D1D) : BwbTheme.wrong).withValues(alpha: 0.3),
+          color: BwbTheme.wrong.withValues(alpha: 0.3),
           width: 2,
         ),
       ),
@@ -171,7 +158,7 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: (isFinalWarning ? const Color(0xFF7F1D1D) : BwbTheme.wrong).withValues(alpha: 0.2),
+                            color: BwbTheme.wrong.withValues(alpha: 0.2),
                             blurRadius: 30,
                             spreadRadius: 10,
                           ),
@@ -191,14 +178,12 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
               const SizedBox(height: 20),
 
               // Title
-              Text(
-                isFinalWarning
-                    ? 'ASSESSMENT TERMINATED'
-                    : 'SECURITY VIOLATION',
+              const Text(
+                'SECURITY VIOLATION',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w900,
-                  color: isFinalWarning ? const Color(0xFF7F1D1D) : BwbTheme.text,
+                  color: BwbTheme.text,
                   letterSpacing: -0.5,
                 ),
                 textAlign: TextAlign.center,
@@ -226,11 +211,9 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      isFinalWarning
-                          ? 'Maximum violations reached. Your test is being automatically submitted.'
-                          : 'Opening other apps, overlays, notification shade, or leaving fullscreen is prohibited.',
-                      style: const TextStyle(
+                    const Text(
+                      'Opening other apps, overlays, notification shade, or leaving fullscreen is prohibited.',
+                      style: TextStyle(
                         fontSize: 13,
                         color: BwbTheme.muted,
                         height: 1.4,
@@ -246,11 +229,9 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
                 width: double.infinity,
                 height: 54,
                 child: ElevatedButton(
-                  onPressed: (isFinalWarning || _suspensionRemaining > 0)
-                      ? null
-                      : widget.onDismiss,
+                  onPressed: _suspensionRemaining > 0 ? null : widget.onDismiss,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: isFinalWarning ? const Color(0xFF7F1D1D) : BwbTheme.primary,
+                    backgroundColor: BwbTheme.primary,
                     disabledBackgroundColor: BwbTheme.border,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
@@ -258,17 +239,13 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
                     elevation: 0,
                   ),
                   child: Text(
-                    isFinalWarning
-                        ? 'Submitting Test...'
-                        : _suspensionRemaining > 0
-                            ? 'Wait ${_suspensionRemaining}s to Resume'
-                            : 'I Understand — Resume',
+                    _suspensionRemaining > 0
+                        ? 'Wait ${_suspensionRemaining}s to Resume'
+                        : 'I Understand — Resume',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: (isFinalWarning || _suspensionRemaining > 0)
-                          ? BwbTheme.muted
-                          : Colors.white,
+                      color: _suspensionRemaining > 0 ? BwbTheme.muted : Colors.white,
                     ),
                   ),
                 ),
