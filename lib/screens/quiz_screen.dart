@@ -41,6 +41,22 @@ class _QuizScreenState extends State<QuizScreen>
   static const double _chipHorizontalMargin = 4; // each side
   static const double _chipRowGap = 8; // gap between prev button and first chip
 
+  // ── Question auto-advance tokens ─────────────────────────────────────────────
+  //
+  // When a single-choice option is tapped, we schedule a 400ms-delayed
+  // animateToPage to the next question.  We track the most-recently-scheduled
+  // advance per page so that:
+  //
+  //   1. A user who rapidly taps a choice and then swipes away doesn't get
+  //      force-pulled back to the auto-advance target.
+  //   2. A user who taps, then taps a DIFFERENT option on the same page
+  //      doesn't fire two animateToPage() calls racing each other
+  //      (last tap wins).
+  //   3. A state rebuild that recreates the QuestionCard doesn't cause the
+  //      captured `i` in the closure to drift onto the wrong page.
+  int _latestAutoAdvanceToken = 0;
+  final Map<int, int> _pageAutoAdvanceToken = {};
+
   @override
   void initState() {
     super.initState();
@@ -139,6 +155,16 @@ class _QuizScreenState extends State<QuizScreen>
   List<int> get _topicCounts =>
       _topics.map((t) => t.questions.length).toList(growable: false);
 
+  /// Flat ordered list of all questions in topic-group order.
+  /// This is the single source of truth for both the PageView and all
+  /// global-index calculations. Using attempt.questions directly would
+  /// break if the server returns questions interleaved across topics
+  /// (e.g. [Q_A, Q_B, Q_A]) — the PageView page-index would then differ
+  /// from the topic-offset-based globalIndex used by the pager chips,
+  /// review screen, and stateKeyFor(), causing wrong keys and missed answers.
+  List<Question> get _orderedQuestions =>
+      [for (final t in _topics) ...t.questions];
+
 
   @override
   void dispose() {
@@ -147,6 +173,7 @@ class _QuizScreenState extends State<QuizScreen>
     _pageController.dispose();
     _tabController.dispose();
     _pagerScrollController.dispose();
+    _pageAutoAdvanceToken.clear();
     super.dispose();
   }
 
@@ -190,7 +217,9 @@ class _QuizScreenState extends State<QuizScreen>
     if (attemptState.attempt == null) return;
     if (DateTime.now().toUtc().isAfter(attemptState.attempt!.deadlineDateTime)) {
       await attemptState.autoSubmit();
-      if (mounted) Navigator.of(context).pushReplacementNamed('/result');
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil('/result', (r) => r.isFirst);
+      }
     }
   }
 
@@ -225,16 +254,18 @@ class _QuizScreenState extends State<QuizScreen>
     if (confirm != true) return;
     if (!mounted) return;
 
-    // submitAndPush() is synchronous from the UI's perspective:
-    // it computes the local result immediately, stores it in state,
-    // then fires the server push in the background.
     final attemptState = context.read<AttemptState>();
-    final result = attemptState.submitAndPush();
+
+    // submitAndPush() is fully synchronous from the UI perspective:
+    // it computes the local result, stores it in state, clears the attempt,
+    // and fires a single notifyListeners() — all before returning.
+    // Navigate immediately after so the result screen is the first widget
+    // to build with the new state (no intermediate spinner frame).
+    attemptState.submitAndPush();
 
     if (!mounted) return;
-    if (result != null) {
-      Navigator.of(context).pushReplacementNamed('/result');
-    }
+    // Remove the quiz screen from the stack so back-button can't return to it.
+    Navigator.of(context).pushNamedAndRemoveUntil('/result', (r) => r.isFirst);
   }
 
   @override
@@ -245,16 +276,28 @@ class _QuizScreenState extends State<QuizScreen>
     if (attempt != null && attemptState.remainingSeconds <= 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          Navigator.of(context).pushNamedAndRemoveUntil('/result', (route) => false);
+          Navigator.of(context).pushNamedAndRemoveUntil('/result', (r) => r.isFirst);
+        }
+      });
+    }
+
+    // Timer expired and autoSubmit() already ran (attempt cleared, result set).
+    // Navigate to result screen now — the spinner below never navigates itself.
+    if (attempt == null && attemptState.submitState == SubmitState.done) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.of(context).pushNamedAndRemoveUntil('/result', (r) => r.isFirst);
         }
       });
     }
 
     if (attempt == null) {
+      // If a result is already computed (post-submit), the _submit() handler
+      // navigates to /result synchronously. Nothing to show here.
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final questions = attempt.questions;
+    final questions = _orderedQuestions;
     final totalSeconds = attemptState.totalSeconds;
     final hasMultipleTopics = _topics.length > 1;
 
@@ -325,30 +368,62 @@ class _QuizScreenState extends State<QuizScreen>
                       _tabController.animateTo(newTopicIdx);
                     }
                   }
+                  // The user swiped away from any page that had a pending
+                  // auto-advance scheduled — clear its token so a later
+                  // tap on that page (after a swipe round-trip) can fire
+                  // a fresh advance without being suppressed by the stale
+                  // token.
+                  _pageAutoAdvanceToken.remove(globalIndex);
                   // Auto-scroll the bottom chip row to keep current question visible
                   _scrollPagerToIndex(globalIndex);
                 },
                 itemBuilder: (context, i) {
                   final localIdx = i - _globalIndexForTopicStart(_topicIndexForGlobal(i));
                   final question = questions[i];
+                  // ValueKey on the global position index — never on question.id.
+                  // question.id can be '' or a short integer like "1" that
+                  // collides across questions when the server reuses IDs.
+                  // A position-based key guarantees Flutter never recycles
+                  // a page's element tree onto a different question.
                   return SingleChildScrollView(
+                    key: ValueKey(i),
                     child: QuestionCard(
                       question: question,
                       index: localIdx,
+                      globalIndex: i,
                       onSingleChoiceSelected: () {
-                        // Auto-slide to next question on single choice selection
-                        final nextPage = i + 1;
-                        if (nextPage < questions.length) {
-                          Future.delayed(const Duration(milliseconds: 350), () {
-                            if (mounted) {
-                              _pageController.animateToPage(
-                                nextPage,
-                                duration: const Duration(milliseconds: 350),
-                                curve: Curves.easeInOut,
-                              );
-                            }
-                          });
-                        }
+                        // Auto-slide to the next question after a short
+                        // delay.  Guard rails:
+                        //   1. Only advance if the user is still on the
+                        //      same page (they may have swiped away).
+                        //   2. A token-per-page map cancels a previously-
+                        //      scheduled advance when the same page is
+                        //      tapped again — prevents two animateToPage
+                        //      calls racing each other.
+                        //   3. Bail on the last page.
+                        final tappedPage = i;
+                        final nextPage = tappedPage + 1;
+                        if (nextPage >= questions.length) return;
+                        final myToken = ++_latestAutoAdvanceToken;
+                        _pageAutoAdvanceToken[tappedPage] = myToken;
+                        Future.delayed(const Duration(milliseconds: 400), () {
+                          if (!mounted) return;
+                          // If the user re-tapped (different option on
+                          // the same page) we want the *latest* token to
+                          // be the one that fires — older ones become
+                          // no-ops.
+                          if (_pageAutoAdvanceToken[tappedPage] != myToken) {
+                            return;
+                          }
+                          final currentPage =
+                              _pageController.page?.round() ?? tappedPage;
+                          if (currentPage != tappedPage) return;
+                          _pageController.animateToPage(
+                            nextPage,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          );
+                        });
                       },
                     ),
                   );
@@ -443,11 +518,16 @@ class _QuizScreenState extends State<QuizScreen>
                 ...List.generate(topicQuestions.length, (localI) {
                 final globalI = globalOffset + localI;
                 final question = topicQuestions[localI];
+                // Use the positional stable key for state lookups — the raw
+                // question.id may collide across questions (the server
+                // re-uses short integer ids per quiz/topic), so reading by
+                // it would make the wrong chip appear "answered" / "flagged".
+                final stateKey = AttemptState.stateKeyFor(question, globalI);
                 final hasAnswer =
-                    (state.selectedChoices[question.id]?.isNotEmpty ?? false) ||
-                    (state.codeAnswers[question.id]?.isNotEmpty ?? false);
+                    (state.selectedChoices[stateKey]?.isNotEmpty ?? false) ||
+                    (state.codeAnswers[stateKey]?.isNotEmpty ?? false);
                 final isCurrent = globalI == state.currentQuestionIndex;
-                final isFlagged = state.flaggedQuestions.contains(question.id);
+                final isFlagged = state.flaggedQuestions.contains(stateKey);
 
                 Color bgColor;
                 if (isCurrent) {
@@ -604,7 +684,6 @@ class _TopicGroup {
   _TopicGroup({required this.id, required this.name, required this.questions});
 }
 
-// ─── Topic navigation button ──────────────────────────────────────────────────
 // ─── Quiz Review Screen ───────────────────────────────────────────────────────
 class _QuizReviewScreen extends StatelessWidget {
   final List<_TopicGroup> topics;
@@ -616,8 +695,25 @@ class _QuizReviewScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<AttemptState>();
     final totalSeconds = state.totalSeconds;
+
+    // Compute totals eagerly so the bottom summary bar is accurate
+    // regardless of which ListView items have been lazily built.
     int totalQs = 0;
     int totalAns = 0;
+    int runningGlobal = 0;
+    for (final topic in topics) {
+      for (final q in topic.questions) {
+        totalQs++;
+        // Use the positional stable key — raw `q.id` may collide across
+        // questions and would over-count "answered" questions.
+        final stateKey = AttemptState.stateKeyFor(q, runningGlobal);
+        if ((state.selectedChoices[stateKey]?.isNotEmpty ?? false) ||
+            (state.codeAnswers[stateKey]?.isNotEmpty ?? false)) {
+          totalAns++;
+        }
+        runningGlobal++;
+      }
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -649,21 +745,22 @@ class _QuizReviewScreen extends StatelessWidget {
                 final boxes = <Widget>[];
                 for (int qi = 0; qi < topic.questions.length; qi++) {
                   final q = topic.questions[qi];
-                  final hasAns = (state.selectedChoices[q.id]?.isNotEmpty ?? false) ||
-                                 (state.codeAnswers[q.id]?.isNotEmpty ?? false);
-                  if (hasAns) {
-                    topicAns++;
-                    totalAns++;
-                  }
-                  totalQs++;
-
                   // Calculate global index
                   int globalIdx = 0;
                   for (int t = 0; t < i; t++) {
                     globalIdx += topics[t].questions.length;
                   }
                   globalIdx += qi;
-                  final isFlagged = state.flaggedQuestions.contains(q.id);
+                  // Use the positional stable key — raw `q.id` may collide
+                  // across questions and would light up the wrong box as
+                  // answered/flagged.
+                  final stateKey = AttemptState.stateKeyFor(q, globalIdx);
+                  final hasAns = (state.selectedChoices[stateKey]?.isNotEmpty ?? false) ||
+                                 (state.codeAnswers[stateKey]?.isNotEmpty ?? false);
+                  if (hasAns) {
+                    topicAns++;
+                  }
+                  final isFlagged = state.flaggedQuestions.contains(stateKey);
 
                   boxes.add(
                     GestureDetector(

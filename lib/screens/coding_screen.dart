@@ -15,6 +15,13 @@ class CodingScreen extends StatefulWidget {
 class _CodingScreenState extends State<CodingScreen> {
   late TextEditingController _controller;
   Question? _question;
+  // Position of the question in the full quiz list. Required so we can
+  // address the same positional state key the rest of the quiz uses
+  // (`AttemptState.stateKeyFor`).  Without this, reading/writing
+  // `codeAnswers[question.id]` would collide when the server re-uses
+  // short integer ids across questions.
+  int? _globalIndex;
+  String? _stateKey;
   Timer? _debounce;
   bool _initialized = false;
 
@@ -23,10 +30,22 @@ class _CodingScreenState extends State<CodingScreen> {
     super.didChangeDependencies();
     if (_initialized) return;
     _initialized = true;
-    _question = ModalRoute.of(context)?.settings.arguments as Question?;
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is List && args.length >= 2 && args[0] is Question) {
+      _question = args[0] as Question;
+      _globalIndex = args[1] as int?;
+      if (_globalIndex != null) {
+        _stateKey = AttemptState.stateKeyFor(_question!, _globalIndex!);
+      }
+    } else {
+      // Backwards-compat: if launched with just a Question, fall back to
+      // the raw id. This won't be hit by the in-app flow, but keeps the
+      // screen usable from a deep link or test harness.
+      _question = args as Question?;
+    }
     final state = context.read<AttemptState>();
     final initial =
-        state.codeAnswers[_question?.id] ?? '';
+        _stateKey != null ? (state.codeAnswers[_stateKey] ?? '') : '';
     _controller = TextEditingController(text: initial);
     _controller.addListener(_onTextChanged);
   }
@@ -35,7 +54,10 @@ class _CodingScreenState extends State<CodingScreen> {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 1500), () {
       if (_question != null && mounted) {
-        context.read<AttemptState>().saveCodeAnswer(_question!.id, _controller.text);
+        final state = context.read<AttemptState>();
+        if (_stateKey != null) {
+          state.saveCodeAnswer(_stateKey!, _controller.text);
+        }
       }
     });
   }
@@ -43,9 +65,9 @@ class _CodingScreenState extends State<CodingScreen> {
   @override
   void dispose() {
     _debounce?.cancel();
-    if (_question != null) {
-      // Save on exit
-      context.read<AttemptState>().saveCodeAnswer(_question!.id, _controller.text);
+    if (_question != null && _stateKey != null) {
+      // Save on exit using the positional state key, not question.id.
+      context.read<AttemptState>().saveCodeAnswer(_stateKey!, _controller.text);
     }
     _controller.dispose();
     super.dispose();
@@ -63,7 +85,9 @@ class _CodingScreenState extends State<CodingScreen> {
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         _debounce?.cancel();
-        context.read<AttemptState>().saveCodeAnswer(q.id, _controller.text);
+        if (_stateKey != null) {
+          context.read<AttemptState>().saveCodeAnswer(_stateKey!, _controller.text);
+        }
         Navigator.of(context).pop();
       },
       child: Scaffold(
@@ -73,7 +97,9 @@ class _CodingScreenState extends State<CodingScreen> {
             icon: const Icon(Icons.arrow_back),
             onPressed: () {
               _debounce?.cancel();
-              context.read<AttemptState>().saveCodeAnswer(q.id, _controller.text);
+              if (_stateKey != null) {
+                context.read<AttemptState>().saveCodeAnswer(_stateKey!, _controller.text);
+              }
               Navigator.of(context).pop();
             },
           ),

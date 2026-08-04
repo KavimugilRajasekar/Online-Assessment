@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
+import '../models/attempt.dart';
+import '../models/question.dart';
 import '../models/quiz.dart';
 import '../services/attempt_service.dart';
 import '../services/attempt_store.dart';
+import '../services/quiz_service.dart';
 import '../state/quiz_state.dart';
 import '../state/attempt_state.dart';
 import '../theme.dart';
@@ -49,28 +52,82 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
     if (!_formKey.currentState!.validate()) return;
     setState(() => _starting = true);
     try {
+      // ── Step 1: start (or resume) the attempt ────────────────────────────
+      // This must succeed — if it throws, the catch below shows the error.
       final attempt = await AttemptService.instance.startOrResumeAttempt(
         quiz.id,
         candidateName: _nameController.text.trim(),
         candidateId: _idController.text.trim(),
       );
-      await AttemptStore.instance.save(quiz.id, attempt.id);
+
+      // ── Step 2: try to fetch questions with answer keys included ──────────
+      // This is best-effort. If the server doesn't support the endpoint (404,
+      // 403, any ApiException) we fall back to the questions already embedded
+      // in the attempt response — the quiz still works, grading will be
+      // pending until the server result comes back after submit.
+      List<Question> fetchedQuestions = attempt.questions;
+      try {
+        final withAnswers =
+            await QuizService.instance.getQuestionsWithAnswers(quiz.id);
+        if (withAnswers.isNotEmpty) fetchedQuestions = withAnswers;
+      } catch (_) {
+        // Endpoint not available — use whatever questions came with the attempt.
+      }
+
+      // ── Step 3: rebuild Attempt with the best question list we have ───────
+      final richAttempt = Attempt(
+        id: attempt.id,
+        quizId: attempt.quizId,
+        status: attempt.status,
+        startedAt: attempt.startedAt,
+        deadlineAt: attempt.deadlineAt,
+        totalMarks: attempt.totalMarks,
+        questionOrder: attempt.questionOrder,
+        questions: fetchedQuestions,
+      );
+
+      // ── Step 4: apply client-side shuffle per quiz flags ──────────────────
+      // • shuffleQuestions → questions shuffled within each topic group
+      // • shuffleChoices   → choices shuffled on every MCQ question
+      final shuffledAttempt =
+          AttemptState.applyShuffleToAttempt(richAttempt, quiz);
+
+      await AttemptStore.instance.save(quiz.id, shuffledAttempt.id);
+
       // Mark this quiz as attempted in the live QuizState so the card
       // is greyed-out immediately when the user returns to the home screen.
       if (mounted) context.read<QuizState>().markAttempted(quiz.id);
       if (mounted) {
-        context.read<AttemptState>().setAttempt(attempt);
+        context.read<AttemptState>().setAttempt(shuffledAttempt);
         Navigator.of(context).pushNamed('/quiz');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: BwbTheme.wrong,
-            behavior: SnackBarBehavior.floating,
+ ScaffoldMessenger.of(context).showSnackBar(
+  SnackBar(
+    content: const Row(
+      children: [
+        Icon(Icons.signal_wifi_connected_no_internet_4_rounded,
+            color: Colors.white),
+        SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            'No Internet Connection',
+            style: TextStyle(fontWeight: FontWeight.w600),
           ),
-        );
+        ),
+      ],
+    ),
+    backgroundColor: BwbTheme.wrong,
+    behavior: SnackBarBehavior.floating,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+    ),
+    margin: const EdgeInsets.all(16),
+    elevation: 6,
+    duration: const Duration(seconds: 1),
+  ),
+);
       }
     } finally {
       if (mounted) setState(() => _starting = false);
