@@ -1,25 +1,17 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/attempt.dart';
+import '../models/answer.dart';
 import '../models/result.dart';
 import '../services/attempt_service.dart';
 import '../services/attempt_store.dart';
 
 enum SubmitState { idle, submitting, done, error }
-enum ConnectivityState { online, offline }
-
-class _QueuedAnswer {
-  final String attemptId;
-  final Map<String, dynamic> payload;
-  int retryCount = 0;
-  _QueuedAnswer(this.attemptId, this.payload);
-}
 
 class AttemptState extends ChangeNotifier {
   Attempt? attempt;
   QuizResult? result;
   SubmitState submitState = SubmitState.idle;
-  ConnectivityState connectivity = ConnectivityState.online;
   String? errorMessage;
   int currentQuestionIndex = 0;
 
@@ -36,11 +28,7 @@ class AttemptState extends ChangeNotifier {
   int totalSeconds = 0;
   bool _autoSubmitted = false;
 
-  // Offline answer queue
-  final List<_QueuedAnswer> _queue = [];
-  Timer? _retryTimer;
-
-  // Auto-submit retry (used when submit() fails due to network)
+  // Background submit retry (fires after the user already sees the result)
   Timer? _submitRetryTimer;
   int _submitRetryCount = 0;
   static const int _maxSubmitRetries = 10;
@@ -50,8 +38,7 @@ class AttemptState extends ChangeNotifier {
   static const int maxViolations = 3;
   String? lastViolationReason;
 
-  bool get isSubmitBlocked =>
-      _queue.isNotEmpty || submitState == SubmitState.submitting;
+  bool get isSubmitBlocked => submitState == SubmitState.submitting;
   bool get hasActiveAttempt =>
       attempt != null && attempt!.status == AttemptStatus.inProgress;
 
@@ -129,12 +116,11 @@ class AttemptState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ── MCQ answers ──────────────────────────────────────────────────────────────
+  // ── MCQ answers — stored locally only, never pushed on tap ──────────────────
 
   void selectSingleChoice(String questionId, String choiceId) {
     selectedChoices[questionId] = [choiceId];
     notifyListeners();
-    _enqueueAnswer(questionId, selectedChoiceIds: [choiceId]);
   }
 
   void toggleMultiChoice(String questionId, String choiceId) {
@@ -146,137 +132,160 @@ class AttemptState extends ChangeNotifier {
     }
     selectedChoices[questionId] = current;
     notifyListeners();
-    _enqueueAnswer(questionId, selectedChoiceIds: current);
   }
 
-  // ── Code answers ─────────────────────────────────────────────────────────────
+  // ── Code answers — stored locally only ──────────────────────────────────────
 
   void updateCodeAnswer(String questionId, String code) {
     codeAnswers[questionId] = code;
     notifyListeners();
   }
 
+  /// Called from the coding screen's Save button — same as updateCodeAnswer,
+  /// kept as a named method so call-sites don't need to change.
   void saveCodeAnswer(String questionId, String code) {
     codeAnswers[questionId] = code;
-    _enqueueAnswer(questionId, codeText: code);
-  }
-
-  // ── Answer queue + retry ─────────────────────────────────────────────────────
-
-  void _enqueueAnswer(String questionId,
-      {List<String>? selectedChoiceIds, String? codeText}) {
-    if (attempt == null) return;
-    final payload = <String, dynamic>{'question_id': questionId};
-    if (selectedChoiceIds != null) {
-      payload['selected_choice_ids'] = selectedChoiceIds;
-    }
-    if (codeText != null) payload['code_text'] = codeText;
-    _queue.removeWhere((q) => q.payload['question_id'] == questionId);
-    _queue.add(_QueuedAnswer(attempt!.id, payload));
-    notifyListeners();
-    _flushQueue();
-  }
-
-  Future<void> _flushQueue() async {
-    if (_queue.isEmpty) return;
-    connectivity = ConnectivityState.online;
-    while (_queue.isNotEmpty) {
-      final item = _queue.first;
-      try {
-        await AttemptService.instance
-            .upsertAnswer(item.attemptId, item.payload);
-        _queue.removeAt(0);
-        notifyListeners();
-      } catch (_) {
-        connectivity = ConnectivityState.offline;
-        notifyListeners();
-        item.retryCount++;
-        final delay =
-            Duration(seconds: (1 << item.retryCount).clamp(1, 30));
-        _retryTimer?.cancel();
-        _retryTimer = Timer(delay, _flushQueue);
-        return;
-      }
-    }
-    connectivity = ConnectivityState.online;
     notifyListeners();
   }
 
   // ── Submit ───────────────────────────────────────────────────────────────────
 
-  /// Full submit from the UI (manual Submit button or auto-submit on timer/
-  /// violations). Flushes the answer queue first, then calls the submit
-  /// endpoint. If the network call fails, schedules automatic retries with
-  /// exponential backoff so the admin panel eventually sees the attempt as
-  /// submitted even if the user closes the app right after.
-  Future<QuizResult?> submit() async {
-    if (attempt == null) return null;
-    final attemptId = attempt!.id;
+  /// Builds the list of [Answer] objects from whatever the user selected/typed.
+  List<Answer> _buildAnswers() {
+    if (attempt == null) return [];
+    final answers = <Answer>[];
+    for (final q in attempt!.questions) {
+      final choiceIds = selectedChoices[q.id] ?? [];
+      final code = codeAnswers[q.id] ?? '';
+      if (choiceIds.isNotEmpty || code.isNotEmpty) {
+        answers.add(Answer(
+          questionId: q.id,
+          selectedChoiceIds: choiceIds,
+          codeText: code,
+          marksAwarded: 0, // server fills this in
+        ));
+      }
+    }
+    return answers;
+  }
 
+  /// Submits the attempt.
+  ///
+  /// Flow:
+  ///   1. Compute the result locally so the UI can navigate to the result
+  ///      screen instantly — no network wait before the user sees their score.
+  ///   2. Push all answers + submit to the server in the background.
+  ///      Retries with exponential backoff up to [_maxSubmitRetries] times so
+  ///      the admin panel eventually sees the attempt as submitted.
+  ///
+  /// Returns the locally-computed [QuizResult] immediately (never null unless
+  /// there is no active attempt).
+  QuizResult? submitAndPush() {
+    if (attempt == null) return null;
+
+    _timer?.cancel();
     submitState = SubmitState.submitting;
     notifyListeners();
 
-    // Flush queued answers best-effort before submitting.
-    _retryTimer?.cancel();
-    try {
-      await _flushQueueImmediate();
-    } catch (_) {
-      // Submit anyway — server grades whatever answers it received.
+    final attemptId = attempt!.id;
+    final quizId = attempt!.quizId;
+    final answers = _buildAnswers();
+    final localResult = _computeLocalResult(answers);
+
+    // Store result so the result screen can read it immediately.
+    result = localResult;
+
+    // Clear attempt state — the quiz is over from the user's perspective.
+    attempt = null;
+    submitState = SubmitState.done;
+    notifyListeners();
+
+    // Save the attempt ID locally so reconcileStaleAttempts can clean up.
+    AttemptStore.instance.save(quizId, attemptId);
+
+    // Push to server silently in background.
+    _pushToServer(attemptId, answers);
+
+    return localResult;
+  }
+
+  /// Computes a [QuizResult] entirely from local data.
+  ///
+  /// Since the server withholds `is_correct` on choices during an active
+  /// attempt, per-question correctness and marks are marked as pending
+  /// (isCorrect = null, marksAwarded = 0). The server-side result (fetched
+  /// by reconcileStaleAttempts or on next app open) will have the real grades.
+  ///
+  /// Total score shown is therefore 0 until the server confirms — the result
+  /// screen handles this gracefully by showing "Pending" when score is 0.
+  QuizResult _computeLocalResult(List<Answer> answers) {
+    if (attempt == null) {
+      return QuizResult(
+        id: '',
+        quizId: '',
+        status: 'submitted',
+        totalMarks: 0,
+        score: 0,
+        answers: [],
+      );
     }
 
+    final answerMap = {for (final a in answers) a.questionId: a};
+    final answerResults = attempt!.questions.map((q) {
+      final a = answerMap[q.id] ??
+          Answer(
+            questionId: q.id,
+            selectedChoiceIds: [],
+            codeText: '',
+            marksAwarded: 0,
+          );
+      return AnswerResult(question: q, answer: a);
+    }).toList();
+
+    return QuizResult(
+      id: '',
+      quizId: attempt!.quizId,
+      status: 'submitted',
+      totalMarks: attempt!.totalMarks,
+      score: 0, // server will confirm
+      answers: answerResults,
+    );
+  }
+
+  /// Pushes all answers then fires the submit endpoint in the background.
+  /// Retries on transient failures with exponential backoff.
+  Future<void> _pushToServer(String attemptId, List<Answer> answers) async {
     try {
-      result = await AttemptService.instance.submit(attemptId);
-      await AttemptStore.instance.save(
-        attempt?.quizId ?? '',
-        attemptId,
-      ); // keep the record so result screen can load it
-      _timer?.cancel();
+      // Upsert every answer, then submit.
+      for (final answer in answers) {
+        await AttemptService.instance.upsertAnswer(
+          attemptId,
+          answer.toJson(),
+        );
+      }
+      await AttemptService.instance.submit(attemptId);
       _cancelSubmitRetry();
-      submitState = SubmitState.done;
-      attempt = null;
-      notifyListeners();
-      return result;
-    } catch (e) {
-      // Network / 5xx — schedule retry so the server eventually gets the
-      // submit even if the user closes the app right now.
-      submitState = SubmitState.error;
-      errorMessage = e.toString();
-      notifyListeners();
-      _scheduleSubmitRetry(attemptId);
-      return null;
+    } catch (_) {
+      // Transient failure — retry with backoff so the server eventually
+      // receives the submit even if the user closes the app.
+      _scheduleSubmitRetry(attemptId, answers);
     }
   }
 
-  /// Retries the submit endpoint for [attemptId] with exponential backoff
-  /// (2s, 4s, 8s … capped at 60s) up to [_maxSubmitRetries] attempts.
-  /// Called automatically when [submit()] hits a network error.
-  /// Also called by [reconcileStaleAttempt] on app resume.
-  void _scheduleSubmitRetry(String attemptId) {
+  /// Auto-submit triggered by the countdown timer or proctoring violations.
+  /// Uses the same submitAndPush() path so the logic is consistent.
+  Future<void> autoSubmit() async {
+    submitAndPush();
+  }
+
+  // ── Background retry ─────────────────────────────────────────────────────────
+
+  void _scheduleSubmitRetry(String attemptId, List<Answer> answers) {
     _cancelSubmitRetry();
     if (_submitRetryCount >= _maxSubmitRetries) return;
-    final delay =
-        Duration(seconds: (1 << _submitRetryCount).clamp(2, 60));
+    final delay = Duration(seconds: (1 << _submitRetryCount).clamp(2, 60));
     _submitRetryCount++;
-    _submitRetryTimer = Timer(delay, () async {
-      try {
-        final accepted =
-            await AttemptService.instance.submitById(attemptId);
-        if (accepted) {
-          // Server accepted — we're done.
-          submitState = SubmitState.done;
-          _cancelSubmitRetry();
-          notifyListeners();
-        } else {
-          // 4xx — already submitted or deleted; stop retrying.
-          submitState = SubmitState.done;
-          _cancelSubmitRetry();
-          notifyListeners();
-        }
-      } catch (_) {
-        // Still failing — retry again.
-        _scheduleSubmitRetry(attemptId);
-      }
-    });
+    _submitRetryTimer = Timer(delay, () => _pushToServer(attemptId, answers));
   }
 
   void _cancelSubmitRetry() {
@@ -285,41 +294,17 @@ class AttemptState extends ChangeNotifier {
     _submitRetryCount = 0;
   }
 
-  Future<void> _flushQueueImmediate() async {
-    for (final item in List.from(_queue)) {
-      await AttemptService.instance
-          .upsertAnswer(item.attemptId, item.payload);
-      _queue.remove(item);
-    }
-  }
-
-  Future<void> autoSubmit() async {
-    await submit();
-  }
-
   // ── Stale-attempt reconciler ─────────────────────────────────────────────────
 
   /// Called from HomeScreen on every load (and on app resume).
   ///
-  /// Scenario: user started a quiz, the app was killed or the timer fired
-  /// while offline, so the server never received the submit — admin panel
-  /// still shows the attempt as "in_progress".
-  ///
-  /// Strategy:
-  ///   1. For every (quizId, attemptId) pair stored in AttemptStore, ask
-  ///      the server for the attempt status.
-  ///   2. If the server already has it as submitted/expired → just clean up
-  ///      local storage (nothing to do).
-  ///   3. If it's still in_progress → fire submitById(). Retry with backoff
-  ///      on network errors. Stop on 4xx (already handled server-side).
-  ///
-  /// Runs silently — no loading state is shown to the user.
+  /// If the app was killed before the background push completed, the server
+  /// still has the attempt as "in_progress". This reconciler fires submitById()
+  /// for any locally-stored attempt IDs that the server hasn't finalised yet.
   Future<void> reconcileStaleAttempts() async {
-    // Don't interfere while the user is actively in a quiz.
-    if (attempt != null) return;
+    if (attempt != null) return; // don't interfere while quiz is active
 
-    final attemptedIds =
-        await AttemptStore.instance.getAttemptedQuizIds();
+    final attemptedIds = await AttemptStore.instance.getAttemptedQuizIds();
     if (attemptedIds.isEmpty) return;
 
     for (final quizId in attemptedIds) {
@@ -327,49 +312,30 @@ class AttemptState extends ChangeNotifier {
       if (attemptId == null) continue;
 
       try {
-        // Fetch current status from server.
         final serverAttempt =
             await AttemptService.instance.getAttempt(attemptId);
-
         if (serverAttempt.status == AttemptStatus.submitted ||
             serverAttempt.status == AttemptStatus.expired) {
-          // Already finalised server-side — nothing to do.
-          continue;
+          continue; // already finalised — nothing to do
         }
-
-        // Still in_progress on the server — submit it now.
         await _submitStaleAttempt(attemptId, quizId);
       } catch (e) {
-        // getAttempt() failed (network / 404).
-        // 404 means the attempt or quiz was deleted — clean up and move on.
         if (e is Exception && e.toString().contains('404')) {
           await AttemptStore.instance.remove(quizId);
-        }
-        // For other errors (network down) try submitting blind — the server
-        // will ignore it if already submitted.
-        else {
+        } else {
           await _submitStaleAttempt(attemptId, quizId);
         }
       }
     }
   }
 
-  /// Submits [attemptId] and removes the local store entry on success.
-  /// Schedules a retry via [_scheduleSubmitRetry] on transient failures.
-  Future<void> _submitStaleAttempt(
-      String attemptId, String quizId) async {
+  Future<void> _submitStaleAttempt(String attemptId, String quizId) async {
     try {
-      final accepted =
-          await AttemptService.instance.submitById(attemptId);
-      if (accepted) {
-        // Server accepted the late submit — keep the store entry so the
-        // result screen can still load, but mark retry as done.
-        _cancelSubmitRetry();
-      }
-      // false = 4xx (already submitted/not found) — nothing to retry.
+      final accepted = await AttemptService.instance.submitById(attemptId);
+      if (accepted) _cancelSubmitRetry();
     } catch (_) {
-      // Transient network error — schedule retry in background.
-      _scheduleSubmitRetry(attemptId);
+      // Schedule a single retry — _pushToServer retry chain handles the rest.
+      _scheduleSubmitRetry(attemptId, []);
     }
   }
 
@@ -377,14 +343,12 @@ class AttemptState extends ChangeNotifier {
 
   void clear() {
     _timer?.cancel();
-    _retryTimer?.cancel();
     _cancelSubmitRetry();
     attempt = null;
     result = null;
     submitState = SubmitState.idle;
     selectedChoices.clear();
     codeAnswers.clear();
-    _queue.clear();
     currentQuestionIndex = 0;
     notifyListeners();
   }
@@ -392,7 +356,6 @@ class AttemptState extends ChangeNotifier {
   @override
   void dispose() {
     _timer?.cancel();
-    _retryTimer?.cancel();
     _cancelSubmitRetry();
     super.dispose();
   }

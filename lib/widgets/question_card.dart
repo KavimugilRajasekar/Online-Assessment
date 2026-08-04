@@ -83,13 +83,14 @@ class QuestionCard extends StatelessWidget {
               ),
             ),
           ],
-          // Code snippet (if any) — but NEVER for coding rounds, where the
-          // candidate must write their own solution. Showing a pre-rendered
-          // block above the "Open Editor" button would expose whatever the
-          // author put in `code` (which may be the reference solution).
-          // For coding, the starter code is shown as a placeholder inside
-          // the editor (see CodeEditorField + CodingScreen).
-          if (question.code.isNotEmpty && question.qtype != QuestionType.coding) ...[
+          // Code snippet (if any).
+          // During a live quiz (readOnly=false) we hide it for coding-type
+          // questions because `code` may contain the reference solution — the
+          // starter code is surfaced inside the editor instead.
+          // In review/result mode (readOnly=true) we always show it so the
+          // user can see the problem code alongside their submitted answer.
+          if (question.code.isNotEmpty &&
+              (readOnly || question.qtype != QuestionType.coding)) ...[
             const SizedBox(height: 12),
             CodeBlockView(code: question.code),
           ],

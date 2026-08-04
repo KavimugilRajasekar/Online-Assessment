@@ -246,8 +246,9 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
               ),
             ];
 
-            // Code block
-            if ((isCode || isCodeMcq) && q.code.isNotEmpty) {
+            // Code block — show for any question that has code,
+            // except pure coding rounds (reference solution must stay hidden).
+            if (!isCode && q.code.isNotEmpty) {
               qWidgets.add(pw.SizedBox(height: 6));
               qWidgets.add(
                 pw.Container(
@@ -942,8 +943,10 @@ class _QuestionCard extends StatelessWidget {
             ),
           ),
 
-          // Code snippet
-          if ((isCodeMcq || isCode) && q.code.isNotEmpty) ...[
+          // Code snippet — show for any question type that has code,
+          // including code_mcq, regular MCQ with a code prompt, etc.
+          // Only coding-round questions hide their code (reference solution).
+          if (!isCode && q.code.isNotEmpty) ...[
             const SizedBox(height: 10),
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 14),

@@ -20,7 +20,6 @@ class QuizScreen extends StatefulWidget {
 class _QuizScreenState extends State<QuizScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   late PageController _pageController;
-  bool _submitting = false;
   bool _showingViolationDialog = false;
 
   // Topic tab state
@@ -225,17 +224,16 @@ class _QuizScreenState extends State<QuizScreen>
     );
     if (confirm != true) return;
     if (!mounted) return;
-    setState(() => _submitting = true);
+
+    // submitAndPush() is synchronous from the UI's perspective:
+    // it computes the local result immediately, stores it in state,
+    // then fires the server push in the background.
     final attemptState = context.read<AttemptState>();
-    final result = await attemptState.submit();
+    final result = attemptState.submitAndPush();
+
     if (!mounted) return;
-    setState(() => _submitting = false);
     if (result != null) {
       Navigator.of(context).pushReplacementNamed('/result');
-    } else {
-      // ScaffoldMessenger.of(context).showSnackBar(
-      //   SnackBar(content: Text(attemptState.errorMessage ?? 'Submit failed')),
-      // );
     }
   }
 
@@ -304,31 +302,16 @@ class _QuizScreenState extends State<QuizScreen>
           actions: [
             Padding(
               padding: const EdgeInsets.only(right: 12),
-              child: _submitting
-                  ? const SizedBox(
-                      width: 24, height: 24,
-                      child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2))
-                  : BwbButton(
-                      label: 'Submit',
-                      onPressed: attemptState.isSubmitBlocked ? null : _submit,
-                    ),
+              child: BwbButton(
+                label: 'Submit',
+                onPressed: attemptState.isSubmitBlocked ? null : _submit,
+              ),
             ),
           ],
         ),
         body: Column(
           children: [
             TimerBar(totalSeconds: totalSeconds),
-            if (attemptState.connectivity == ConnectivityState.offline)
-              Container(
-                width: double.infinity,
-                color: BwbTheme.wrong.withValues(alpha: 0.1),
-                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
-                child: const Text(
-                  'Offline — answers will be saved when reconnected',
-                  style: TextStyle(color: BwbTheme.wrong, fontSize: 12),
-                  textAlign: TextAlign.center,
-                ),
-              ),
             Expanded(
               child: PageView.builder(
                 controller: _pageController,

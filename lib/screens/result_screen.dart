@@ -6,6 +6,7 @@ import '../models/result.dart';
 import '../state/attempt_state.dart';
 import '../theme.dart';
 import '../widgets/bwb_button.dart';
+import '../widgets/choice_tile.dart';
 import '../widgets/code_block_view.dart';
 
 class ResultScreen extends StatefulWidget {
@@ -56,10 +57,16 @@ class _ResultScreenState extends State<ResultScreen>
       );
     }
 
-    final scorePercent = result.totalMarks > 0
+    // When the server push is still in-flight, score = 0 and answers have no
+    // correctness data yet.  Show a neutral "submitted" banner and hide the
+    // per-question breakdown until we have real grades.
+    final isPending = result.id.isEmpty;
+
+    final scorePercent = result.totalMarks > 0 && !isPending
         ? (result.score / result.totalMarks * 100)
         : 0.0;
-    final scoreColor = _scoreColor(scorePercent);
+    final scoreColor =
+        isPending ? BwbTheme.primary : _scoreColor(scorePercent);
 
     return Scaffold(
       body: CustomScrollView(
@@ -101,7 +108,7 @@ class _ResultScreenState extends State<ResultScreen>
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _scoreLabel(scorePercent),
+                        isPending ? 'Submitted!' : _scoreLabel(scorePercent),
                         style: const TextStyle(
                           fontFamily: BwbTheme.fontFamily,
                           color: Colors.white,
@@ -125,30 +132,67 @@ class _ResultScreenState extends State<ResultScreen>
                             ),
                           ],
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            _ScoreStat(
-                              label: 'Your Score',
-                              value: result.score.toStringAsFixed(1),
-                              color: scoreColor,
-                            ),
-                            Container(
-                                height: 50, width: 1, color: BwbTheme.border),
-                            _ScoreStat(
-                              label: 'Total Marks',
-                              value: result.totalMarks.toStringAsFixed(1),
-                              color: BwbTheme.muted,
-                            ),
-                            Container(
-                                height: 50, width: 1, color: BwbTheme.border),
-                            _ScoreStat(
-                              label: 'Percentage',
-                              value: '${scorePercent.toStringAsFixed(0)}%',
-                              color: scoreColor,
-                            ),
-                          ],
-                        ),
+                        child: isPending
+                            ? Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2.5),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'Syncing to server…',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: BwbTheme.muted,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Your answers have been recorded.\nGrades will appear once confirmed.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: BwbTheme.muted,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  _ScoreStat(
+                                    label: 'Your Score',
+                                    value:
+                                        result.score.toStringAsFixed(1),
+                                    color: scoreColor,
+                                  ),
+                                  Container(
+                                      height: 50,
+                                      width: 1,
+                                      color: BwbTheme.border),
+                                  _ScoreStat(
+                                    label: 'Total Marks',
+                                    value: result.totalMarks
+                                        .toStringAsFixed(1),
+                                    color: BwbTheme.muted,
+                                  ),
+                                  Container(
+                                      height: 50,
+                                      width: 1,
+                                      color: BwbTheme.border),
+                                  _ScoreStat(
+                                    label: 'Percentage',
+                                    value:
+                                        '${scorePercent.toStringAsFixed(0)}%',
+                                    color: scoreColor,
+                                  ),
+                                ],
+                              ),
                       ),
                     ],
                   ),
@@ -164,24 +208,48 @@ class _ResultScreenState extends State<ResultScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Row(
-                    children: [
-                      Icon(Icons.fact_check_outlined,
-                          color: BwbTheme.primary, size: 20),
-                      SizedBox(width: 8),
-                      Text(
-                        'Answer Review',
-                        style: TextStyle(
-                          fontFamily: BwbTheme.fontFamily,
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
+                  if (!isPending) ...[
+                    const Row(
+                      children: [
+                        Icon(Icons.fact_check_outlined,
+                            color: BwbTheme.primary, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'Answer Review',
+                          style: TextStyle(
+                            fontFamily: BwbTheme.fontFamily,
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    ...result.answers.map((ar) => _buildAnswerCard(ar)),
+                    const SizedBox(height: 24),
+                  ],
+                  if (isPending) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: BwbTheme.primary.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                            color: BwbTheme.primary.withValues(alpha: 0.2)),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  ...result.answers.map((ar) => _buildAnswerCard(ar)),
-                  const SizedBox(height: 24),
+                      child: const Text(
+                        'The answer key and your detailed score will be available once the results are published by the administrator.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 13,
+                            color: BwbTheme.primary,
+                            height: 1.5),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
                   SizedBox(
                     width: double.infinity,
                     child: BwbButton(
@@ -264,7 +332,9 @@ class _ResultScreenState extends State<ResultScreen>
                   ),
                 ],
               ),
-              if (q.code.isNotEmpty && !isCoding) ...[
+              // Always show the question's code snippet in the result screen —
+              // the "hide for coding type" rule only applies during the live quiz.
+              if (q.code.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 CodeBlockView(code: q.code),
               ],
@@ -283,6 +353,32 @@ class _ResultScreenState extends State<ResultScreen>
                   'Coding answers are reviewed manually.',
                   style: TextStyle(fontSize: 11, color: BwbTheme.muted),
                 ),
+              ],
+              // Choices — shown for mcqSingle, mcqMulti, and codeMcq.
+              // Each choice is coloured: green if correct, red if the user
+              // picked it and it's wrong, grey otherwise.
+              if (!isCoding && q.choices.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                ...q.choices.map((choice) {
+                  final userSelected = a.selectedChoiceIds.contains(choice.id);
+                  ChoiceTileState tileState;
+                  if (choice.isCorrect == true) {
+                    tileState = ChoiceTileState.correct;
+                  } else if (userSelected && choice.isCorrect == false) {
+                    tileState = ChoiceTileState.wrong;
+                  } else if (userSelected) {
+                    // isCorrect is null (answer key not yet published) —
+                    // still show what the user picked.
+                    tileState = ChoiceTileState.selected;
+                  } else {
+                    tileState = ChoiceTileState.unselected;
+                  }
+                  return ChoiceTile(
+                    choice: choice,
+                    state: tileState,
+                    onTap: null, // read-only
+                  );
+                }),
               ],
               const SizedBox(height: 10),
               Row(

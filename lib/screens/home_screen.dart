@@ -161,7 +161,7 @@ class _HomeScreenState extends State<HomeScreen>
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 24, top: 8),
                   child: Text(
-                    'Dev by Kavi',
+                    'Dev by CSEA',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12,
