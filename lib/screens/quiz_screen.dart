@@ -67,7 +67,22 @@ class _QuizScreenState extends State<QuizScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _buildTopicGroups();
       LockdownService.instance.enableLockdown(onViolation: _handleViolation);
+
+      // Register the timer-expiry navigation callback so when the countdown
+      // hits zero, autoSubmit fires and then immediately navigates here —
+      // without relying on a postFrameCallback that can be missed.
+      if (mounted) {
+        context.read<AttemptState>().setAttempt(
+          context.read<AttemptState>().attempt!,
+          onTimerExpired: _navigateToResult,
+        );
+      }
     });
+  }
+
+  void _navigateToResult() {
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil('/result', (r) => r.isFirst);
   }
 
   void _buildTopicGroups() {
@@ -170,6 +185,7 @@ class _QuizScreenState extends State<QuizScreen>
   void dispose() {
     LockdownService.instance.disableLockdown();
     WidgetsBinding.instance.removeObserver(this);
+    context.read<AttemptState>().clearAutoSubmitCallback();
     _pageController.dispose();
     _tabController.dispose();
     _pagerScrollController.dispose();
@@ -184,9 +200,7 @@ class _QuizScreenState extends State<QuizScreen>
 
     if (!_showingViolationDialog) {
       _showingViolationDialog = true;
-      // Push a transparent full-screen route so the overlay covers the
-      // entire viewport (including the system bars) instead of being
-      // constrained to the centered Dialog insets.
+      LockdownService.instance.notifyDialogOpen();
       Navigator.of(context, rootNavigator: true).push(
         PageRouteBuilder(
           opaque: false,
@@ -197,13 +211,26 @@ class _QuizScreenState extends State<QuizScreen>
             reason: reason,
             onDismiss: () {
               _showingViolationDialog = false;
+              LockdownService.instance.notifyDialogClosed();
               Navigator.of(navCtx, rootNavigator: true).pop();
-              LockdownService.instance.enableLockdown(onViolation: _handleViolation);
+              // Read isFinal fresh — a 3rd violation may have fired while
+              // this dialog was already open (isFinal was false at open time).
+              final nowFinal = context.read<AttemptState>().violationCount
+                  >= AttemptState.maxViolations;
+              if (nowFinal) {
+                _navigateToResult();
+              } else {
+                LockdownService.instance
+                    .enableLockdown(onViolation: _handleViolation);
+              }
             },
           ),
         ),
       ).then((_) => _showingViolationDialog = false);
     }
+    // If dialog is already open, recordViolation() already updated
+    // AttemptState.violationCount — the overlay rebuilds via context.watch
+    // and shows the new count + triggers auto-submit on the 3rd violation.
   }
 
   @override
@@ -216,10 +243,8 @@ class _QuizScreenState extends State<QuizScreen>
     final attemptState = context.read<AttemptState>();
     if (attemptState.attempt == null) return;
     if (DateTime.now().toUtc().isAfter(attemptState.attempt!.deadlineDateTime)) {
-      await attemptState.autoSubmit();
-      if (mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil('/result', (r) => r.isFirst);
-      }
+      attemptState.autoSubmit();
+      if (mounted) _navigateToResult();
     }
   }
 

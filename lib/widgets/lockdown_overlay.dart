@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
+import 'package:provider/provider.dart';
+import '../state/attempt_state.dart';
 import '../theme.dart';
 
 class LockdownOverlayDialog extends StatefulWidget {
@@ -23,61 +25,62 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
   late final AnimationController _shakeController;
   late final Animation<double> _shakeAnimation;
 
-  // Pulse animation for the "SUSPENDED" badge
+  // Pulse animation for dots
   late final AnimationController _pulseController;
 
   // Fade-in for the whole dialog
   late final AnimationController _fadeController;
 
-  // Suspension countdown timer (1/6 minute = 10 seconds)
+  // Suspension countdown — user must wait before they can dismiss
   int _suspensionRemaining = 10;
   Timer? _suspensionTimer;
+
+  // Track the last violation count we've seen so we can detect a new
+  // violation arriving while the dialog is already open.
+  int _lastSeenViolationCount = 0;
 
   @override
   void initState() {
     super.initState();
 
-    // Shake: quick left-right on open
     _shakeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
     );
     _shakeAnimation = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween(begin: 0, end: -8), weight: 1),
-      TweenSequenceItem(tween: Tween(begin: -8, end: 8), weight: 2),
-      TweenSequenceItem(tween: Tween(begin: 8, end: -6), weight: 2),
-      TweenSequenceItem(tween: Tween(begin: -6, end: 6), weight: 2),
-      TweenSequenceItem(tween: Tween(begin: 6, end: 0), weight: 1),
-    ]).animate(CurvedAnimation(parent: _shakeController, curve: Curves.easeInOut));
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: -8.0), weight: 1),
+      TweenSequenceItem(tween: Tween(begin: -8.0, end: 8.0), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 8.0, end: -6.0), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: -6.0, end: 6.0), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 6.0, end: 0.0), weight: 1),
+    ]).animate(
+        CurvedAnimation(parent: _shakeController, curve: Curves.easeInOut));
 
-    // Pulse: repeating scale for "SUSPENDED" badge
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
 
-    // Fade in dialog
     _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 350),
     );
 
     _shakeController.forward();
-
     _startSuspensionTimer();
   }
 
   void _startSuspensionTimer() {
     _suspensionTimer?.cancel();
-    _suspensionRemaining = 10; // 1/6 minute
-    _suspensionTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    _suspensionRemaining = 10;
+    _suspensionTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() {
         if (_suspensionRemaining > 0) {
-          _suspensionRemaining--;
-        } else {
-          _suspensionTimer?.cancel();
-        }
+        _suspensionRemaining--;
+      } else {
+        _suspensionTimer?.cancel();
+      }
       });
     });
   }
@@ -93,11 +96,32 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
 
   @override
   Widget build(BuildContext context) {
+    // Read live from AttemptState so the counter updates automatically
+    // when a new violation fires while this dialog is already open.
+    final state = context.watch<AttemptState>();
+    final violationNumber = state.violationCount;
+    final maxViolations = AttemptState.maxViolations;
+
+    // Detect a new violation arriving while we're already open — restart
+    // the shake and reset the suspension countdown so the user must wait
+    // again before dismissing.
+    if (violationNumber > _lastSeenViolationCount) {
+      _lastSeenViolationCount = violationNumber;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _shakeController
+          ..reset()
+          ..forward();
+        _startSuspensionTimer();
+      });
+    }
+
+    final isFinal = violationNumber >= maxViolations;
+    final accentColor =
+        isFinal ? const Color(0xFFDC2626) : BwbTheme.wrong;
+
     return PopScope(
       canPop: false,
-      // Stack-based overlay so the warning card sits on top of a fully
-      // opaque barrier — the rest of the app must not be visible while
-      // a violation is being acknowledged.
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -105,8 +129,14 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
           Center(
             child: SingleChildScrollView(
               child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-                child: _buildCard(),
+                margin:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+                child: _buildCard(
+                  violationNumber: violationNumber,
+                  maxViolations: maxViolations,
+                  isFinal: isFinal,
+                  accentColor: accentColor,
+                ),
               ),
             ),
           ),
@@ -115,21 +145,26 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
     );
   }
 
-  Widget _buildCard() {
+  Widget _buildCard({
+    required int violationNumber,
+    required int maxViolations,
+    required bool isFinal,
+    required Color accentColor,
+  }) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-            color: BwbTheme.wrong.withValues(alpha: 0.15),
+            color: accentColor.withValues(alpha: 0.18),
             blurRadius: 40,
             spreadRadius: 10,
             offset: const Offset(0, 10),
           ),
         ],
         border: Border.all(
-          color: BwbTheme.wrong.withValues(alpha: 0.3),
+          color: accentColor.withValues(alpha: 0.35),
           width: 2,
         ),
       ),
@@ -140,7 +175,7 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Animated Lottie Error / Warning Icon with shake effect & glow
+              // Warning icon with shake
               AnimatedBuilder(
                 animation: _shakeAnimation,
                 builder: (_, child) => Transform.translate(
@@ -150,7 +185,6 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    // Glow
                     Container(
                       width: 80,
                       height: 80,
@@ -158,7 +192,7 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: BwbTheme.wrong.withValues(alpha: 0.2),
+                            color: accentColor.withValues(alpha: 0.2),
                             blurRadius: 30,
                             spreadRadius: 10,
                           ),
@@ -178,19 +212,54 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
               const SizedBox(height: 20),
 
               // Title
-              const Text(
-                'SECURITY VIOLATION',
+              Text(
+                isFinal ? 'QUIZ AUTO-SUBMITTED' : 'SECURITY VIOLATION',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w900,
-                  color: BwbTheme.text,
+                  color: accentColor,
                   letterSpacing: -0.5,
                 ),
                 textAlign: TextAlign.center,
               ),
+              const SizedBox(height: 14),
+
+              // Violation counter dots — live count
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(maxViolations, (i) {
+                  final filled = i < violationNumber;
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    margin: const EdgeInsets.symmetric(horizontal: 5),
+                    width: 14,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: filled ? accentColor : Colors.transparent,
+                      border: Border.all(
+                        color:
+                            filled ? accentColor : Colors.grey.shade400,
+                        width: 2,
+                      ),
+                    ),
+                  );
+                }),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                isFinal
+                    ? 'Maximum violations reached'
+                    : 'Warning $violationNumber of $maxViolations',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: accentColor,
+                ),
+              ),
               const SizedBox(height: 16),
 
-              // Reason Box
+              // Reason box
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -211,9 +280,11 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      'Opening other apps, overlays, notification shade, or leaving fullscreen is prohibited.',
-                      style: TextStyle(
+                    Text(
+                      isFinal
+                          ? 'Your quiz has been submitted automatically due to repeated violations.'
+                          : 'Opening other apps, overlays, notification shade, or leaving fullscreen is prohibited.',
+                      style: const TextStyle(
                         fontSize: 13,
                         color: BwbTheme.muted,
                         height: 1.4,
@@ -225,13 +296,17 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
               ),
               const SizedBox(height: 32),
 
+              // Action button
               SizedBox(
                 width: double.infinity,
                 height: 54,
                 child: ElevatedButton(
-                  onPressed: _suspensionRemaining > 0 ? null : widget.onDismiss,
+                  onPressed: isFinal
+                      ? widget.onDismiss
+                      : (_suspensionRemaining > 0 ? null : widget.onDismiss),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: BwbTheme.primary,
+                    backgroundColor:
+                        isFinal ? accentColor : BwbTheme.primary,
                     disabledBackgroundColor: BwbTheme.border,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
@@ -239,13 +314,19 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
                     elevation: 0,
                   ),
                   child: Text(
-                    _suspensionRemaining > 0
-                        ? 'Wait ${_suspensionRemaining}s to Resume'
-                        : 'I Understand — Resume',
+                    isFinal
+                        ? 'View Result'
+                        : (_suspensionRemaining > 0
+                            ? 'Wait ${_suspensionRemaining}s to Resume'
+                            : 'I Understand — Resume'),
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: _suspensionRemaining > 0 ? BwbTheme.muted : Colors.white,
+                      color: isFinal
+                          ? Colors.white
+                          : (_suspensionRemaining > 0
+                              ? BwbTheme.muted
+                              : Colors.white),
                     ),
                   ),
                 ),
@@ -257,4 +338,3 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
     );
   }
 }
-

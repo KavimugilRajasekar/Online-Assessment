@@ -75,6 +75,24 @@ class _TopicSelectScreenState extends State<TopicSelectScreen>
       }
 
       // ── Step 3: rebuild Attempt with the best question list we have ───────
+      // Re-sort fetchedQuestions to match attempt.questionOrder so that
+      // position-based state keys are always deterministic regardless of
+      // which endpoint served the questions.  Questions not found in
+      // questionOrder (shouldn't happen) are appended at the end.
+      if (fetchedQuestions != attempt.questions &&
+          attempt.questionOrder.isNotEmpty) {
+        final orderMap = {
+          for (int i = 0; i < attempt.questionOrder.length; i++)
+            attempt.questionOrder[i]: i
+        };
+        fetchedQuestions = List<Question>.from(fetchedQuestions)
+          ..sort((a, b) {
+            final ai = orderMap[a.id] ?? 999999;
+            final bi = orderMap[b.id] ?? 999999;
+            return ai.compareTo(bi);
+          });
+      }
+
       final richAttempt = Attempt(
         id: attempt.id,
         quizId: attempt.quizId,

@@ -32,6 +32,16 @@ class AttemptState extends ChangeNotifier {
   int totalSeconds = 0;
   bool _autoSubmitted = false;
 
+  // Per-question debounce timers for background answer push.
+  // Keyed by stateKey (same as selectedChoices). A short delay lets the
+  // user change their mind on multi-select without hammering the server.
+  final Map<String, Timer> _pushDebounceTimers = {};
+
+  // State keys that have been successfully upserted to the server.
+  // At submit time only keys NOT in this set need re-upsert, saving
+  // a full round-trip batch when answers were already pushed on selection.
+  final Set<String> _pushedStateKeys = {};
+
   // Time tracking — captured at submit so the result screen can display it
   int timeUsedSeconds = 0;
   int quizTotalSeconds = 0;
@@ -209,7 +219,8 @@ class AttemptState extends ChangeNotifier {
     );
   }
 
-  void setAttempt(Attempt a) {
+  void setAttempt(Attempt a, {VoidCallback? onTimerExpired}) {
+    _onAutoSubmitNavigate = onTimerExpired;
     // Reorder questions to be topic-contiguous so that the flat positional
     // index used by stateKeyFor / _buildAnswers always matches the
     // topic-grouped order the QuizScreen PageView and review screen show.
@@ -226,6 +237,11 @@ class AttemptState extends ChangeNotifier {
     selectedChoices.clear();
     codeAnswers.clear();
     flaggedQuestions.clear();
+    for (final t in _pushDebounceTimers.values) {
+      t.cancel();
+    }
+    _pushDebounceTimers.clear();
+    _pushedStateKeys.clear();
     currentQuestionIndex = 0;
     timeUsedSeconds = 0;
     quizTotalSeconds = 0;
@@ -234,6 +250,10 @@ class AttemptState extends ChangeNotifier {
     _cancelSubmitRetry();
     _startTimer();
     notifyListeners();
+  }
+
+  void clearAutoSubmitCallback() {
+    _onAutoSubmitNavigate = null;
   }
 
   void _startTimer() {
@@ -251,10 +271,15 @@ class AttemptState extends ChangeNotifier {
         notifyListeners();
       } else if (!_autoSubmitted) {
         _autoSubmitted = true;
-        autoSubmit();
+        autoSubmit(onDone: _onAutoSubmitNavigate);
       }
     });
   }
+
+  /// Set by QuizScreen to a navigation callback that fires immediately after
+  /// autoSubmit completes. Using a callback avoids relying on postFrameCallback
+  /// which can be missed during rapid state transitions from the timer.
+  VoidCallback? _onAutoSubmitNavigate;
 
   void goToQuestion(int index) {
     currentQuestionIndex = index;
@@ -266,6 +291,8 @@ class AttemptState extends ChangeNotifier {
   void selectSingleChoice(String questionId, String choiceId) {
     selectedChoices[questionId] = [choiceId];
     notifyListeners();
+    // Push immediately — single-select is a final decision on tap.
+    _schedulePush(questionId, immediate: true);
   }
 
   void toggleMultiChoice(String questionId, String choiceId) {
@@ -277,6 +304,8 @@ class AttemptState extends ChangeNotifier {
     }
     selectedChoices[questionId] = current;
     notifyListeners();
+    // Debounced — user may tap several options in quick succession.
+    _schedulePush(questionId);
   }
 
   // ── Code answers — stored locally only ──────────────────────────────────────
@@ -291,6 +320,67 @@ class AttemptState extends ChangeNotifier {
   void saveCodeAnswer(String questionId, String code) {
     codeAnswers[questionId] = code;
     notifyListeners();
+  }
+
+  // ── Background per-answer push ───────────────────────────────────────────────
+
+  /// Schedules a background upsert for the question identified by [stateKey].
+  ///
+  /// For single-choice questions the push fires immediately (no debounce
+  /// needed — the user can't change their mind on the same tap). For multi-
+  /// select we debounce by [_multiDebounce] so rapid toggles are coalesced
+  /// into one request instead of one per tap.
+  ///
+  /// The push is fire-and-forget: failures are silently swallowed because the
+  /// full answer set is re-pushed at submit time anyway. This is purely an
+  /// optimistic reliability layer.
+  static const Duration _multiDebounce = Duration(milliseconds: 800);
+
+  void _schedulePush(String stateKey, {bool immediate = false}) {
+    _pushDebounceTimers[stateKey]?.cancel();
+    if (immediate) {
+      _pushAnswerNow(stateKey);
+    } else {
+      _pushDebounceTimers[stateKey] =
+          Timer(_multiDebounce, () => _pushAnswerNow(stateKey));
+    }
+  }
+
+  /// Finds the real question ID and attempt ID for [stateKey], builds the
+  /// answer payload, and fires a single upsertAnswer call in the background.
+  void _pushAnswerNow(String stateKey) {
+    _pushDebounceTimers.remove(stateKey);
+    final a = attempt;
+    if (a == null) return;
+
+    // Locate the question that owns this stateKey by checking each position.
+    // This is O(n) but n is small (quiz length) and this runs off the hot path.
+    for (int pos = 0; pos < a.questions.length; pos++) {
+      final q = a.questions[pos];
+      if (_stableKeyForPosition(pos, q.id) != stateKey) continue;
+
+      final choiceIds = selectedChoices[stateKey] ?? [];
+      final code = codeAnswers[stateKey] ?? '';
+      if (choiceIds.isEmpty && code.isEmpty) return; // nothing to push
+
+      final payload = Answer(
+        questionId: q.id,
+        selectedChoiceIds: choiceIds,
+        codeText: code,
+        marksAwarded: 0,
+      ).toJson();
+
+      // Push and track success — mark this key as synced so _pushToServer
+      // can skip it and go straight to submit(), saving a full round-trip.
+      AttemptService.instance
+          .upsertAnswer(a.id, payload)
+          .then((_) => _pushedStateKeys.add(stateKey))
+          .catchError((_) {
+        // Failed — leave key out of _pushedStateKeys so submit re-tries it.
+        return false;
+      });
+      return;
+    }
   }
 
   // ── Submit ───────────────────────────────────────────────────────────────────
@@ -352,6 +442,13 @@ class AttemptState extends ChangeNotifier {
     if (attempt == null) return null;
 
     _timer?.cancel();
+
+    // Flush any pending per-answer debounce timers so in-flight selections
+    // are captured before we snapshot the answer list.
+    for (final t in _pushDebounceTimers.values) {
+      t.cancel();
+    }
+    _pushDebounceTimers.clear();
 
     // Capture time used before clearing state.
     timeUsedSeconds = totalSeconds - remainingSeconds;
@@ -490,25 +587,37 @@ class AttemptState extends ChangeNotifier {
   /// Retries on transient failures with exponential backoff.
   Future<void> _pushToServer(String attemptId, List<Answer> answers) async {
     try {
-      // Only push questions the user actually answered — skip empty entries
-      // produced by the positional _buildAnswers() for unanswered questions.
-      final answeredAnswers = answers
-          .where((a) => a.selectedChoiceIds.isNotEmpty || a.codeText.isNotEmpty)
-          .toList();
+      // Only re-upsert answers that weren't successfully pushed on selection.
+      // Answers already in _pushedStateKeys were sent immediately when the
+      // user tapped — no need to send them again, saving N round-trips before
+      // the submit call and making the result screen appear faster.
+      final attempt = this.attempt; // may already be null (cleared above)
+      final notYetPushed = answers.where((a) {
+        if (a.selectedChoiceIds.isEmpty && a.codeText.isEmpty) return false;
+        // Find the stateKey for this answer's question.
+        if (attempt != null) {
+          for (int pos = 0; pos < attempt.questions.length; pos++) {
+            if (attempt.questions[pos].id == a.questionId) {
+              final key = _stableKeyForPosition(pos, a.questionId);
+              return !_pushedStateKeys.contains(key);
+            }
+          }
+        }
+        // If we can't match, re-push to be safe.
+        return true;
+      }).toList();
 
-      // Fire all answer upserts concurrently — no need to wait for each
-      // one before starting the next. This turns N sequential round-trips
-      // into a single parallel batch, cutting the wait from N×latency to
-      // roughly 1×latency regardless of how many questions there are.
-      await Future.wait(
-        answeredAnswers.map(
-          (answer) => AttemptService.instance.upsertAnswer(
-            attemptId,
-            answer.toJson(),
+      if (notYetPushed.isNotEmpty) {
+        await Future.wait(
+          notYetPushed.map(
+            (answer) => AttemptService.instance.upsertAnswer(
+              attemptId,
+              answer.toJson(),
+            ),
           ),
-        ),
-        eagerError: false, // collect all errors, don't bail on first failure
-      );
+          eagerError: false,
+        );
+      }
 
       final serverResult = await AttemptService.instance.submit(attemptId);
       _cancelSubmitRetry();
@@ -616,8 +725,12 @@ class AttemptState extends ChangeNotifier {
 
   /// Auto-submit triggered by the countdown timer or proctoring violations.
   /// Uses the same submitAndPush() path so the logic is consistent.
-  Future<void> autoSubmit() async {
+  /// [onDone] is called synchronously after the result is computed so the
+  /// caller (QuizScreen) can navigate immediately without relying on a
+  /// postFrameCallback that may be missed during rapid state transitions.
+  void autoSubmit({VoidCallback? onDone}) {
     submitAndPush();
+    onDone?.call();
   }
 
   // ── Background retry ─────────────────────────────────────────────────────────
@@ -686,6 +799,11 @@ class AttemptState extends ChangeNotifier {
   void clear() {
     _timer?.cancel();
     _cancelSubmitRetry();
+    _onAutoSubmitNavigate = null;
+    for (final t in _pushDebounceTimers.values) {
+      t.cancel();
+    }
+    _pushDebounceTimers.clear();
     attempt = null;
     result = null;
     submitState = SubmitState.idle;
@@ -703,6 +821,10 @@ class AttemptState extends ChangeNotifier {
   void dispose() {
     _timer?.cancel();
     _cancelSubmitRetry();
+    for (final t in _pushDebounceTimers.values) {
+      t.cancel();
+    }
+    _pushDebounceTimers.clear();
     super.dispose();
   }
 }

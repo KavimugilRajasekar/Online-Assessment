@@ -13,6 +13,16 @@ class LockdownService {
   bool _isLockdownActive = false;
   ViolationCallback? _onViolation;
 
+  // Debounce: ignore violations that fire within this window of each other.
+  // Prevents the overlay itself (which causes a brief lifecycle pause on
+  // some devices) from generating a second violation immediately.
+  static const Duration _violationDebounce = Duration(seconds: 2);
+  DateTime? _lastViolationTime;
+
+  // Suppresses violations while the violation dialog is open — prevents
+  // the overlay from triggering extra increments on itself.
+  bool _dialogOpen = false;
+
   // Native bridge to MainActivity.kt. On Android the host sets FLAG_SECURE
   // and stricter SYSTEM_UI_FLAG_IMMERSIVE_STICKY. On every other platform
   // the channel returns MethodNotImplemented which we swallow.
@@ -100,16 +110,51 @@ class LockdownService {
   void _teardownWebListeners() {}
 
   void triggerViolation(String reason) {
-    if (_isLockdownActive && _onViolation != null) {
-      _onViolation!(reason);
+    if (!_isLockdownActive || _onViolation == null) return;
+
+    // In debug mode, log but still fire the violation so developers can
+    // test the flow. The kDebugMode guard was too aggressive — it silenced
+    // violations entirely, making it impossible to verify the counter.
+    if (kDebugMode) {
+      debugPrint('[LockdownService] Violation (debug): $reason');
     }
+
+    // Skip while the violation dialog is open — the overlay itself can
+    // trigger a brief lifecycle pause on some devices/Android versions.
+    if (_dialogOpen) return;
+
+    // Debounce: ignore rapid-fire duplicates within the debounce window.
+    final now = DateTime.now();
+    if (_lastViolationTime != null &&
+        now.difference(_lastViolationTime!) < _violationDebounce) {
+      return;
+    }
+    _lastViolationTime = now;
+
+    _onViolation!(reason);
+  }
+
+  /// Call this when the violation dialog opens so lifecycle events triggered
+  /// by the overlay itself don't count as additional violations.
+  void notifyDialogOpen() => _dialogOpen = true;
+
+  /// Call this when the violation dialog closes so violations resume.
+  void notifyDialogClosed() {
+    _dialogOpen = false;
+    // Reset debounce so the next real violation is detected immediately.
+    _lastViolationTime = null;
   }
 
   /// Handle App Lifecycle state transitions.
-  /// Only triggers a violation when the user actually leaves the app (paused).
+  /// Triggers a violation when the user leaves the app in any form:
+  /// - paused   : app moved to background (home button / task switch)
+  /// - hidden   : app fully hidden, Android 14+ / iOS equivalient
+  /// - detached : app process still alive but UI detached (swiped from recents)
   void handleLifecycleState(AppLifecycleState state) {
     if (!_isLockdownActive) return;
-    if (state == AppLifecycleState.paused) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
       triggerViolation('You left the app during the assessment!');
     }
   }
