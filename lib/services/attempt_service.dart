@@ -41,8 +41,16 @@ class AttemptService {
     await ApiClient.instance.post('/api/attempts/$attemptId/answers/', answer);
   }
 
-  Future<QuizResult> submit(String attemptId) async {
-    final data = await ApiClient.instance.post('/api/attempts/$attemptId/submit/');
+  Future<QuizResult> submit(String attemptId, {int violationCount = 0}) async {
+    final data = await ApiClient.instance.post(
+      '/api/attempts/$attemptId/submit/',
+      violationCount > 0
+          ? {
+              'violation_count': violationCount,
+              'security_violations': violationCount,
+            }
+          : null,
+    );
     return _parseResult(data, attemptId);
   }
 

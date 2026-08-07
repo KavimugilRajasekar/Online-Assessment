@@ -272,32 +272,86 @@ class QuestionCard extends StatelessWidget {
   Widget _buildCodingSection(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: BwbTheme.border),
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Coding Question',
-              style: TextStyle(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
           const Text(
-            'Tap "Open Editor" to write your solution.',
-            style: TextStyle(color: BwbTheme.muted, fontSize: 13),
+            'Coding Question',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
           ),
           const SizedBox(height: 12),
+          // Greyed out Open Editor button
           ElevatedButton(
-            onPressed: () {
-              // Pass (question, globalIndex) so the coding screen can
-              // address the same positional state key the rest of the
-              // quiz uses — see AttemptState.stateKeyFor. The args are
-              // packed in a List so we don't need a shared public type.
-              Navigator.of(context).pushNamed(
-                '/coding',
-                arguments: <Object>[question, globalIndex ?? index],
-              );
-            },
-            child: const Text('Open Editor'),
+            onPressed: null, // Greyed out
+            style: ElevatedButton.styleFrom(
+              disabledBackgroundColor: Colors.grey.shade300,
+              disabledForegroundColor: Colors.grey.shade600,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text(
+              'Open Editor',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          const SizedBox(height: 14),
+          // Notice 1: Use Paper and Pen for Examiner to Evaluate
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFBFDBFE)),
+            ),
+            child: Row(
+              children: const [
+                Icon(Icons.edit_note_rounded, size: 20, color: Color(0xFF1D4ED8)),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Use Paper and Pen for Examinar to Evaluate',
+                    style: TextStyle(
+                      color: Color(0xFF1E40AF),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Notice 2: This Still in Development Process !!
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFFBEB),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFFDE68A)),
+            ),
+            child: Row(
+              children: const [
+                Icon(Icons.construction_rounded, size: 18, color: Color(0xFFD97706)),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'This Still in Devlopement Process !!',
+                    style: TextStyle(
+                      color: Color(0xFFB45309),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

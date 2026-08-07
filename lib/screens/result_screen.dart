@@ -88,14 +88,12 @@ class _ResultScreenState extends State<ResultScreen>
     final serverSyncing = !state.serverSyncDone && !state.serverSyncFailed;
     final serverFailed = state.serverSyncFailed;
 
-    // Grades are fully pending when the server withheld choice.isCorrect
-    // during the quiz (anti-cheat) and the sync hasn't returned yet.
-    // In this case the local score is 0 which would be misleading — show
-    // dashes until the server fills in real values.
+    // Grades are pending only while active sync is running and all MCQ answers are ungraded.
+    // In offline mode (serverFailed), we ALWAYS display the locally evaluated score!
     final gradesPending = serverSyncing && _allGradesPending(result);
 
-    final scorePercent = (!gradesPending && result.totalMarks > 0)
-        ? (result.score / result.totalMarks * 100)
+    final scorePercent = (result.totalMarks > 0)
+        ? ((result.score / result.totalMarks * 100).clamp(0.0, 100.0))
         : 0.0;
     final scoreColor =
         gradesPending ? BwbTheme.primary : _scoreColor(scorePercent);
@@ -206,33 +204,68 @@ class _ResultScreenState extends State<ResultScreen>
                       // ── Time used chip ─────────────────────────────────────
                       if (state.timeUsedSeconds > 0) ...[
                         const SizedBox(height: 14),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.18),
-                            borderRadius: BorderRadius.circular(30),
-                            border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.4),
-                                width: 1),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.timer_outlined,
-                                  size: 16, color: Colors.white),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Completed in ${_formatDuration(state.timeUsedSeconds)}'
-                                '${state.quizTotalSeconds > 0 ? '  /  ${_formatDuration(state.quizTotalSeconds)}' : ''}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          alignment: WrapAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.18),
+                                borderRadius: BorderRadius.circular(30),
+                                border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.4),
+                                    width: 1),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.timer_outlined,
+                                      size: 16, color: Colors.white),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Completed in ${_formatDuration(state.timeUsedSeconds)}'
+                                    '${state.quizTotalSeconds > 0 ? '  /  ${_formatDuration(state.quizTotalSeconds)}' : ''}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (state.violationCount > 0)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.shade900.withValues(alpha: 0.8),
+                                  borderRadius: BorderRadius.circular(30),
+                                  border: Border.all(
+                                      color: Colors.white.withValues(alpha: 0.5),
+                                      width: 1),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.security_outlined,
+                                        size: 16, color: Colors.white),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Violations: ${state.violationCount}/${AttemptState.maxViolations}',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ],
-                          ),
+                          ],
                         ),
                       ],
 
@@ -441,10 +474,10 @@ class _ResultScreenState extends State<ResultScreen>
                 CodeBlockView(code: q.code),
               ],
 
-              // ── Choices ──────────────────────────────────────────────────
+              // ── Choices ─────────────────────────────────────────────
               if (!isCoding && q.choices.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                _buildResultChoices(q, a),
+                _buildResultChoices(q, a, questionIndex),
               ],
 
               // ── Coding answer ────────────────────────────────────────────
@@ -529,30 +562,66 @@ class _ResultScreenState extends State<ResultScreen>
     );
   }
 
-  Widget _buildResultChoices(Question q, Answer a) {
+  Widget _buildResultChoices(Question q, Answer a, int questionIndex) {
     final selectedIds = a.selectedChoiceIds.toSet();
     final hasCorrectnessData = q.choices.any((c) => c.isCorrect != null);
 
+    final stateKey = q.id.isNotEmpty
+        ? 'q${questionIndex}__${q.id}'
+        : 'q$questionIndex';
+
     return Column(
-      children: q.choices.map((choice) {
+      children: q.choices.asMap().entries.map((entry) {
+        final ci = entry.key;
+        final choice = entry.value;
+
+        final resolvedChoiceId =
+            choice.id.isNotEmpty ? choice.id : '${stateKey}_c$ci';
+
+        final isSelected = selectedIds.contains(choice.id) ||
+            selectedIds.contains(resolvedChoiceId);
+        final isCorrectChoice = choice.isCorrect == true;
+
         ChoiceTileState tileState;
+        String? badgeText;
+        Color? badgeBgColor;
+        Color? badgeTextColor;
+
         if (!hasCorrectnessData) {
-          tileState = selectedIds.contains(choice.id)
-              ? ChoiceTileState.selected
-              : ChoiceTileState.unselected;
-        } else if (choice.isCorrect == true) {
+          if (isSelected) {
+            tileState = ChoiceTileState.selected;
+            badgeText = '• Your Selection';
+            badgeBgColor = const Color(0xFFDBEAFE);
+            badgeTextColor = const Color(0xFF1E40AF);
+          } else {
+            tileState = ChoiceTileState.unselected;
+          }
+        } else if (isSelected && isCorrectChoice) {
           tileState = ChoiceTileState.correct;
-        } else if (selectedIds.contains(choice.id) &&
-            choice.isCorrect == false) {
+          badgeText = '✓ Your Selection — Correct';
+          badgeBgColor = const Color(0xFFD1FAE5);
+          badgeTextColor = const Color(0xFF047857);
+        } else if (isSelected && !isCorrectChoice) {
           tileState = ChoiceTileState.wrong;
+          badgeText = '✗ Your Selection — Incorrect';
+          badgeBgColor = const Color(0xFFFEE2E2);
+          badgeTextColor = const Color(0xFFB91C1C);
+        } else if (!isSelected && isCorrectChoice) {
+          tileState = ChoiceTileState.correct;
+          badgeText = '★ Correct Answer';
+          badgeBgColor = const Color(0xFFE0F2FE);
+          badgeTextColor = const Color(0xFF0369A1);
         } else {
           tileState = ChoiceTileState.unselected;
         }
 
         return ChoiceTile(
-          key: ValueKey('result_${choice.id}_${tileState.name}'),
+          key: ValueKey('result_${stateKey}_${ci}_${tileState.name}'),
           choice: choice,
           state: tileState,
+          badgeText: badgeText,
+          badgeBgColor: badgeBgColor,
+          badgeTextColor: badgeTextColor,
           onTap: null,
         );
       }).toList(),

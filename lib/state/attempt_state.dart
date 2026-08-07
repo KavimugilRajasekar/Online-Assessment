@@ -256,6 +256,17 @@ class AttemptState extends ChangeNotifier {
     _onAutoSubmitNavigate = null;
   }
 
+  /// Registers the navigation callback fired after autoSubmit completes
+  /// (timer expiry) WITHOUT touching anything else on the attempt.
+  ///
+  /// QuizScreen used to call setAttempt() a second time just to pass this
+  /// callback in, which silently reset violationCount to 0, cleared every
+  /// selected answer, and restarted the debounce/push state right as the
+  /// quiz screen mounted. Use this instead.
+  void setTimerExpiredCallback(VoidCallback? cb) {
+    _onAutoSubmitNavigate = cb;
+  }
+
   void _startTimer() {
     _timer?.cancel();
     if (attempt == null) return;
@@ -392,6 +403,12 @@ class AttemptState extends ChangeNotifier {
   /// [_computeLocalResult] can match by index instead of by questionId —
   /// avoiding map-key collisions when the server reuses the same questionId
   /// across multiple questions.
+  ///
+  /// The [selectedChoiceIds] stored here are the **resolved** choice IDs —
+  /// i.e. the real choice.id when non-empty, or the positional fallback
+  /// `${stateKey}_c${choiceIndex}` when the server gave us an empty string.
+  /// [_computeLocalResult] resolves choice correctness using the same logic
+  /// so that the comparison works even with positional-fallback IDs.
   List<Answer> _buildAnswers() {
     if (attempt == null) return [];
     final questions = attempt!.questions;
@@ -407,6 +424,15 @@ class AttemptState extends ChangeNotifier {
         marksAwarded: 0, // server fills this in
       );
     });
+  }
+
+  /// Returns the resolved choice ID for [choice] at index [choiceIndex] within
+  /// the question identified by [stateKey] — mirrors the logic in
+  /// QuestionCard._buildChoiceTile so the IDs we store and the IDs we
+  /// compare at evaluation time are always identical.
+  static String _resolvedChoiceId(
+      String stateKey, int choiceIndex, String choiceId) {
+    return choiceId.isNotEmpty ? choiceId : '${stateKey}_c$choiceIndex';
   }
 
   /// Mirrors `QuestionCard._stableQuestionKey()` — used by `_buildAnswers()`
@@ -458,6 +484,9 @@ class AttemptState extends ChangeNotifier {
 
     final attemptId = attempt!.id;
     final quizId = attempt!.quizId;
+    // Capture attempt BEFORE clearing it — _pushToServer needs it to filter
+    // which answers still need to be pushed (notYetPushed filter).
+    final snapshotAttempt = attempt!;
     final answers = _buildAnswers();
     final localResult = _computeLocalResult(answers);
 
@@ -474,7 +503,7 @@ class AttemptState extends ChangeNotifier {
     AttemptStore.instance.save(quizId, attemptId);
 
     // Push to server silently in background.
-    _pushToServer(attemptId, answers);
+    _pushToServer(attemptId, answers, snapshotAttempt: snapshotAttempt);
 
     return localResult;
   }
@@ -538,9 +567,23 @@ class AttemptState extends ChangeNotifier {
         return AnswerResult(question: q, answer: submitted);
       }
 
-      // Derive the correct-choice set from the local question model.
-      final correctIds =
-          q.choices.where((c) => c.isCorrect == true).map((c) => c.id).toSet();
+      // Build the stateKey for this question position — identical to what
+      // QuestionCard._stableQuestionKey() / QuestionCard._resolvedId() use.
+      final stateKey = _stableKeyForPosition(i, q.id);
+
+      // Derive the correct-choice set using the SAME resolved choice IDs
+      // that QuestionCard._buildChoiceTile() wrote into selectedChoices.
+      // When the server gives us a non-empty choice.id we use it; when it
+      // returns an empty string we use the positional fallback key so the
+      // comparison is guaranteed to match.
+      final correctIds = <String>{};
+      for (int ci = 0; ci < q.choices.length; ci++) {
+        final c = q.choices[ci];
+        if (c.isCorrect == true) {
+          correctIds.add(_resolvedChoiceId(stateKey, ci, c.id));
+        }
+      }
+
       final selectedSet = submitted.selectedChoiceIds.toSet();
 
       bool isCorrect;
@@ -581,23 +624,81 @@ class AttemptState extends ChangeNotifier {
     );
   }
 
+  /// Flushes all unpushed answers in parallel, invoking [onQuestionFlushed]
+  /// with each (stateKey, success) as its server request completes.
+  /// Used by the Quiz Review screen to show live tick indicators as each
+  /// question is verified on the server.
+  Future<void> flushAllAnswersInParallel({
+    required void Function(String stateKey, bool success) onQuestionFlushed,
+  }) async {
+    final a = attempt;
+    if (a == null) return;
+
+    final futures = <Future<void>>[];
+
+    for (int pos = 0; pos < a.questions.length; pos++) {
+      final q = a.questions[pos];
+      final stateKey = _stableKeyForPosition(pos, q.id);
+
+      // If already pushed previously via background tap, report immediately.
+      if (_pushedStateKeys.contains(stateKey)) {
+        onQuestionFlushed(stateKey, true);
+        continue;
+      }
+
+      final choiceIds = selectedChoices[stateKey] ?? [];
+      final code = codeAnswers[stateKey] ?? '';
+
+      // If empty answer, mark as checked/flushed
+      if (choiceIds.isEmpty && code.isEmpty) {
+        _pushedStateKeys.add(stateKey);
+        onQuestionFlushed(stateKey, true);
+        continue;
+      }
+
+      final payload = Answer(
+        questionId: q.id,
+        selectedChoiceIds: choiceIds,
+        codeText: code,
+        marksAwarded: 0,
+      ).toJson();
+
+      final f = AttemptService.instance
+          .upsertAnswer(a.id, payload)
+          .then((_) {
+            _pushedStateKeys.add(stateKey);
+            onQuestionFlushed(stateKey, true);
+          })
+          .catchError((_) {
+            onQuestionFlushed(stateKey, false);
+          });
+      futures.add(f);
+    }
+
+    if (futures.isNotEmpty) {
+      await Future.wait(futures, eagerError: false);
+    }
+  }
+
   /// Pushes all answers in parallel, then fires the submit endpoint.
   /// On success, replaces the locally-computed pending result with the
   /// server-graded result so the result screen shows real scores.
   /// Retries on transient failures with exponential backoff.
-  Future<void> _pushToServer(String attemptId, List<Answer> answers) async {
+  ///
+  /// [snapshotAttempt] is the [Attempt] captured just before [attempt] was
+  /// cleared in [submitAndPush]. It is used to resolve which answers still
+  /// need to be pushed (those not already confirmed via background push).
+  Future<void> _pushToServer(String attemptId, List<Answer> answers,
+      {Attempt? snapshotAttempt}) async {
     try {
       // Only re-upsert answers that weren't successfully pushed on selection.
-      // Answers already in _pushedStateKeys were sent immediately when the
-      // user tapped — no need to send them again, saving N round-trips before
-      // the submit call and making the result screen appear faster.
-      final attempt = this.attempt; // may already be null (cleared above)
+      final snap = snapshotAttempt;
       final notYetPushed = answers.where((a) {
         if (a.selectedChoiceIds.isEmpty && a.codeText.isEmpty) return false;
-        // Find the stateKey for this answer's question.
-        if (attempt != null) {
-          for (int pos = 0; pos < attempt.questions.length; pos++) {
-            if (attempt.questions[pos].id == a.questionId) {
+        // Find the stateKey for this answer's question by position.
+        if (snap != null) {
+          for (int pos = 0; pos < snap.questions.length; pos++) {
+            if (snap.questions[pos].id == a.questionId) {
               final key = _stableKeyForPosition(pos, a.questionId);
               return !_pushedStateKeys.contains(key);
             }
@@ -619,7 +720,8 @@ class AttemptState extends ChangeNotifier {
         );
       }
 
-      final serverResult = await AttemptService.instance.submit(attemptId);
+      final serverResult = await AttemptService.instance
+          .submit(attemptId, violationCount: violationCount);
       _cancelSubmitRetry();
       serverSyncDone = true;
 
@@ -740,7 +842,8 @@ class AttemptState extends ChangeNotifier {
     if (_submitRetryCount >= _maxSubmitRetries) return;
     final delay = Duration(seconds: (1 << _submitRetryCount).clamp(2, 60));
     _submitRetryCount++;
-    _submitRetryTimer = Timer(delay, () => _pushToServer(attemptId, answers));
+    _submitRetryTimer =
+        Timer(delay, () => _pushToServer(attemptId, answers));
   }
 
   void _cancelSubmitRetry() {

@@ -71,11 +71,14 @@ class _QuizScreenState extends State<QuizScreen>
       // Register the timer-expiry navigation callback so when the countdown
       // hits zero, autoSubmit fires and then immediately navigates here —
       // without relying on a postFrameCallback that can be missed.
+      //
+      // NOTE: this must NOT call setAttempt() again — setAttempt() resets
+      // violationCount, clears every selected answer, and restarts the
+      // timer/push state. It previously did, which meant any state built
+      // up before this callback ran (rare, but possible on a slow first
+      // frame) was silently wiped right as the quiz screen mounted.
       if (mounted) {
-        context.read<AttemptState>().setAttempt(
-          context.read<AttemptState>().attempt!,
-          onTimerExpired: _navigateToResult,
-        );
+        context.read<AttemptState>().setTimerExpiredCallback(_navigateToResult);
       }
     });
   }
@@ -258,12 +261,18 @@ class _QuizScreenState extends State<QuizScreen>
     return false;
   }
 
-  Future<void> _submit() async {
+  bool _isReviewingOrSubmitting = false;
+
+  Future<void> _submit({bool isTimeExpired = false}) async {
+    if (_isReviewingOrSubmitting) return;
+    _isReviewingOrSubmitting = true;
+
     final confirm = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => _QuizReviewScreen(
           topics: _topics,
+          isTimeExpired: isTimeExpired,
           onSelectQuestion: (globalIdx, reviewContext) {
             // Pop the review screen first, then jump to question
             Navigator.pop(reviewContext, false);
@@ -276,6 +285,8 @@ class _QuizScreenState extends State<QuizScreen>
         ),
       ),
     );
+
+    _isReviewingOrSubmitting = false;
     if (confirm != true) return;
     if (!mounted) return;
 
@@ -284,8 +295,6 @@ class _QuizScreenState extends State<QuizScreen>
     // submitAndPush() is fully synchronous from the UI perspective:
     // it computes the local result, stores it in state, clears the attempt,
     // and fires a single notifyListeners() — all before returning.
-    // Navigate immediately after so the result screen is the first widget
-    // to build with the new state (no intermediate spinner frame).
     attemptState.submitAndPush();
 
     if (!mounted) return;
@@ -301,14 +310,24 @@ class _QuizScreenState extends State<QuizScreen>
     if (attempt != null && attemptState.remainingSeconds <= 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          Navigator.of(context).pushNamedAndRemoveUntil('/result', (r) => r.isFirst);
+          _submit(isTimeExpired: true);
         }
       });
     }
 
     // Timer expired and autoSubmit() already ran (attempt cleared, result set).
     // Navigate to result screen now — the spinner below never navigates itself.
-    if (attempt == null && attemptState.submitState == SubmitState.done) {
+    //
+    // Guarded with !_showingViolationDialog: a 3rd security violation also
+    // clears attempt/sets submitState=done via recordViolation()->autoSubmit(),
+    // but synchronously, before the user has seen the "QUIZ AUTO-SUBMITTED"
+    // dialog. Without this guard, this postFrameCallback could yank the whole
+    // route (dialog included) to /result on the very next frame — the dialog's
+    // own onDismiss already handles navigation for that case once the user
+    // taps "View Result", so this fallback should stand down while it's open.
+    if (attempt == null &&
+        attemptState.submitState == SubmitState.done &&
+        !_showingViolationDialog) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           Navigator.of(context).pushNamedAndRemoveUntil('/result', (r) => r.isFirst);
@@ -710,11 +729,62 @@ class _TopicGroup {
 }
 
 // ─── Quiz Review Screen ───────────────────────────────────────────────────────
-class _QuizReviewScreen extends StatelessWidget {
+class _QuizReviewScreen extends StatefulWidget {
   final List<_TopicGroup> topics;
   final Function(int, BuildContext) onSelectQuestion;
+  final bool isTimeExpired;
 
-  const _QuizReviewScreen({required this.topics, required this.onSelectQuestion});
+  const _QuizReviewScreen({
+    required this.topics,
+    required this.onSelectQuestion,
+    this.isTimeExpired = false,
+  });
+
+  @override
+  State<_QuizReviewScreen> createState() => _QuizReviewScreenState();
+}
+
+class _QuizReviewScreenState extends State<_QuizReviewScreen> {
+  bool _isSubmitting = false;
+  final Set<String> _flushedStateKeys = {};
+  int _totalQuestionsToFlush = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isTimeExpired) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _startParallelFlushAndSubmit();
+      });
+    }
+  }
+
+  Future<void> _startParallelFlushAndSubmit() async {
+    if (_isSubmitting) return;
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    final attemptState = context.read<AttemptState>();
+    final attempt = attemptState.attempt;
+
+    if (attempt != null) {
+      _totalQuestionsToFlush = attempt.questions.length;
+      await attemptState.flushAllAnswersInParallel(
+        onQuestionFlushed: (stateKey, success) {
+          if (mounted) {
+            setState(() {
+              _flushedStateKeys.add(stateKey);
+            });
+          }
+        },
+      );
+    }
+
+    if (!mounted) return;
+    Navigator.pop(context, true);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -722,15 +792,12 @@ class _QuizReviewScreen extends StatelessWidget {
     final totalSeconds = state.totalSeconds;
 
     // Compute totals eagerly so the bottom summary bar is accurate
-    // regardless of which ListView items have been lazily built.
     int totalQs = 0;
     int totalAns = 0;
     int runningGlobal = 0;
-    for (final topic in topics) {
+    for (final topic in widget.topics) {
       for (final q in topic.questions) {
         totalQs++;
-        // Use the positional stable key — raw `q.id` may collide across
-        // questions and would over-count "answered" questions.
         final stateKey = AttemptState.stateKeyFor(q, runningGlobal);
         if ((state.selectedChoices[stateKey]?.isNotEmpty ?? false) ||
             (state.codeAnswers[stateKey]?.isNotEmpty ?? false)) {
@@ -740,159 +807,353 @@ class _QuizReviewScreen extends StatelessWidget {
       }
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Review Assessment', style: TextStyle(fontWeight: FontWeight.bold)),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => Navigator.pop(context, false),
-        ),
-      ),
-      body: Column(
-        children: [
-          TimerBar(totalSeconds: totalSeconds),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-            color: BwbTheme.primary.withValues(alpha: 0.05),
-            child: const Text(
-              'Tap any question box below to jump directly to it.',
-              style: TextStyle(color: BwbTheme.primary, fontSize: 13, fontWeight: FontWeight.w600),
-            ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: topics.length,
-              itemBuilder: (ctx, i) {
-                final topic = topics[i];
-                int topicAns = 0;
-                final boxes = <Widget>[];
-                for (int qi = 0; qi < topic.questions.length; qi++) {
-                  final q = topic.questions[qi];
-                  // Calculate global index
-                  int globalIdx = 0;
-                  for (int t = 0; t < i; t++) {
-                    globalIdx += topics[t].questions.length;
-                  }
-                  globalIdx += qi;
-                  // Use the positional stable key — raw `q.id` may collide
-                  // across questions and would light up the wrong box as
-                  // answered/flagged.
-                  final stateKey = AttemptState.stateKeyFor(q, globalIdx);
-                  final hasAns = (state.selectedChoices[stateKey]?.isNotEmpty ?? false) ||
-                                 (state.codeAnswers[stateKey]?.isNotEmpty ?? false);
-                  if (hasAns) {
-                    topicAns++;
-                  }
-                  final isFlagged = state.flaggedQuestions.contains(stateKey);
+    final flushedCount = _flushedStateKeys.length;
+    final flushProgress =
+        _totalQuestionsToFlush > 0 ? (flushedCount / _totalQuestionsToFlush) : 0.0;
 
-                  boxes.add(
-                    GestureDetector(
-                      onTap: () => onSelectQuestion(globalIdx, context),
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Container(
-                            decoration: BoxDecoration(
-                              color: hasAns ? const Color(0xFF10B981) : Colors.white,
-                              border: Border.all(color: hasAns ? const Color(0xFF059669) : Colors.grey.shade400, width: 1.5),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Center(
-                              child: Text(
-                                '${qi + 1}',
-                                style: TextStyle(
-                                  color: hasAns ? Colors.white : Colors.black87,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (isFlagged)
-                            const Positioned(
-                              top: -4,
-                              right: -4,
-                              child: Icon(Icons.flag_rounded, size: 16, color: Colors.orange),
-                            ),
-                        ],
+    return PopScope(
+      canPop: !_isSubmitting,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Review Assessment',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            onPressed: _isSubmitting ? null : () => Navigator.pop(context, false),
+          ),
+        ),
+        body: Column(
+          children: [
+            TimerBar(totalSeconds: totalSeconds),
+            if (widget.isTimeExpired)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                color: const Color(0xFFFEF3C7),
+                child: Row(
+                  children: const [
+                    Icon(Icons.timer_off_rounded, color: Color(0xFFD97706), size: 20),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Time Expired! Auto-submitting assessment...',
+                        style: TextStyle(
+                          color: Color(0xFFB45309),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
-                  );
-                }
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  ],
+                ),
+              ),
+            if (_isSubmitting)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                color: const Color(0xFFECFDF5),
+                child: Column(
                   children: [
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Expanded(child: Text(topic.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+                        const Row(
+                          children: [
+                            SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Color(0xFF059669),
+                              ),
+                            ),
+                            SizedBox(width: 10),
+                            Text(
+                              'Flushing answers to server in parallel...',
+                              style: TextStyle(
+                                color: Color(0xFF065F46),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
                         Text(
-                          '$topicAns / ${topic.questions.length} Answered', 
-                          style: TextStyle(
-                            color: topicAns == topic.questions.length ? const Color(0xFF10B981) : Colors.orange.shade700,
+                          '$flushedCount / $totalQs Checked',
+                          style: const TextStyle(
+                            color: Color(0xFF047857),
                             fontWeight: FontWeight.bold,
                             fontSize: 12,
-                          )
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    GridView.count(
-                      crossAxisCount: 6,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      mainAxisSpacing: 10,
-                      crossAxisSpacing: 10,
-                      children: boxes,
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: flushProgress,
+                        backgroundColor: const Color(0xFFA7F3D0),
+                        color: const Color(0xFF059669),
+                        minHeight: 6,
+                      ),
                     ),
-                    const SizedBox(height: 24),
-                    if (i < topics.length - 1) const Divider(),
-                    if (i < topics.length - 1) const SizedBox(height: 12),
                   ],
-                );
-              },
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(top: BorderSide(color: Colors.black12)),
-              boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -2))],
-            ),
-            child: SafeArea(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text('Final Submission', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                        Text('$totalAns Answered', style: const TextStyle(color: Color(0xFF059669), fontWeight: FontWeight.bold, fontSize: 13)),
-                        if (totalQs - totalAns > 0)
-                          Text('${totalQs - totalAns} Unanswered', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 13)),
-                      ],
-                    ),
-                  ),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.black,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    onPressed: () => Navigator.pop(context, true),
-                    child: const Text('Submit Quiz', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                  ),
-                ],
+                ),
+              )
+            else
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                color: BwbTheme.primary.withValues(alpha: 0.05),
+                child: const Text(
+                  'Tap any question box below to jump directly to it.',
+                  style: TextStyle(
+                      color: BwbTheme.primary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600),
+                ),
+              ),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: widget.topics.length,
+                itemBuilder: (ctx, i) {
+                  final topic = widget.topics[i];
+                  int topicAns = 0;
+                  final boxes = <Widget>[];
+                  for (int qi = 0; qi < topic.questions.length; qi++) {
+                    final q = topic.questions[qi];
+                    int globalIdx = 0;
+                    for (int t = 0; t < i; t++) {
+                      globalIdx += widget.topics[t].questions.length;
+                    }
+                    globalIdx += qi;
+
+                    final stateKey = AttemptState.stateKeyFor(q, globalIdx);
+                    final hasAns =
+                        (state.selectedChoices[stateKey]?.isNotEmpty ?? false) ||
+                        (state.codeAnswers[stateKey]?.isNotEmpty ?? false);
+                    if (hasAns) {
+                      topicAns++;
+                    }
+                    final isFlagged = state.flaggedQuestions.contains(stateKey);
+                    final isFlushed = _flushedStateKeys.contains(stateKey);
+
+                    Color boxBgColor;
+                    Color borderColor;
+                    Widget childWidget;
+
+                    if (_isSubmitting) {
+                      if (isFlushed) {
+                        boxBgColor = const Color(0xFF059669);
+                        borderColor = const Color(0xFF047857);
+                        childWidget = const Icon(
+                          Icons.check_circle_rounded,
+                          color: Colors.white,
+                          size: 22,
+                        );
+                      } else if (hasAns) {
+                        boxBgColor = const Color(0xFFD1FAE5);
+                        borderColor = const Color(0xFF10B981);
+                        childWidget = const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: Color(0xFF059669),
+                          ),
+                        );
+                      } else {
+                        boxBgColor = Colors.grey.shade100;
+                        borderColor = Colors.grey.shade300;
+                        childWidget = Text(
+                          '${qi + 1}',
+                          style: TextStyle(
+                            color: Colors.grey.shade500,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        );
+                      }
+                    } else {
+                      if (hasAns) {
+                        boxBgColor = const Color(0xFF10B981);
+                        borderColor = const Color(0xFF059669);
+                        childWidget = Text(
+                          '${qi + 1}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        );
+                      } else {
+                        boxBgColor = Colors.white;
+                        borderColor = Colors.grey.shade400;
+                        childWidget = Text(
+                          '${qi + 1}',
+                          style: const TextStyle(
+                            color: Colors.black87,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        );
+                      }
+                    }
+
+                    boxes.add(
+                      GestureDetector(
+                        onTap: _isSubmitting
+                            ? null
+                            : () => widget.onSelectQuestion(globalIdx, context),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              decoration: BoxDecoration(
+                                color: boxBgColor,
+                                border: Border.all(color: borderColor, width: 1.5),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Center(child: childWidget),
+                            ),
+                            if (isFlagged && !_isSubmitting)
+                              const Positioned(
+                                top: -4,
+                                right: -4,
+                                child: Icon(Icons.flag_rounded,
+                                    size: 16, color: Colors.orange),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              topic.name,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          ),
+                          Text(
+                            '$topicAns / ${topic.questions.length} Answered',
+                            style: TextStyle(
+                              color: topicAns == topic.questions.length
+                                  ? const Color(0xFF10B981)
+                                  : Colors.orange.shade700,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      GridView.count(
+                        crossAxisCount: 6,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        mainAxisSpacing: 10,
+                        crossAxisSpacing: 10,
+                        children: boxes,
+                      ),
+                      const SizedBox(height: 24),
+                      if (i < widget.topics.length - 1) const Divider(),
+                      if (i < widget.topics.length - 1) const SizedBox(height: 12),
+                    ],
+                  );
+                },
               ),
             ),
-          )
-        ],
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: Colors.black12)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black12,
+                    blurRadius: 10,
+                    offset: Offset(0, -2),
+                  )
+                ],
+              ),
+              child: SafeArea(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('Final Submission',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 15)),
+                          Text('$totalAns Answered',
+                              style: const TextStyle(
+                                  color: Color(0xFF059669),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13)),
+                          if (totalQs - totalAns > 0)
+                            Text('${totalQs - totalAns} Unanswered',
+                                style: const TextStyle(
+                                    color: Colors.red,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isSubmitting ? Colors.grey.shade400 : Colors.black,
+                        foregroundColor: Colors.white,
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: _isSubmitting ? null : _startParallelFlushAndSubmit,
+                      child: _isSubmitting
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                SizedBox(width: 10),
+                                Text(
+                                  'Pushed to Server...',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                              ],
+                            )
+                          : const Text(
+                              'Submit Quiz',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 15),
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          ],
+        ),
       ),
     );
   }

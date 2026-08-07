@@ -66,6 +66,13 @@ class _LockdownOverlayDialogState extends State<LockdownOverlayDialog>
       duration: const Duration(milliseconds: 350),
     );
 
+    // Seed with the count as of dialog-open, read once via context.read
+    // (safe in initState — it's a one-off lookup, not a subscription).
+    // Without this it defaults to 0, so the very first build() sees
+    // violationCount (e.g. 1) > 0 and redundantly re-triggers the shake +
+    // restarts the 10s suspension countdown a second time on every open.
+    _lastSeenViolationCount = context.read<AttemptState>().violationCount;
+
     _shakeController.forward();
     _startSuspensionTimer();
   }

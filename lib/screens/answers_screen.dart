@@ -25,7 +25,6 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
   String? _error;
   List<_TopicData> _topics = [];
   String _quizTitle = '';
-  String _quizDescription = '';
   int _expandedTopic = 0;
 
   @override
@@ -52,7 +51,6 @@ class _AnswersScreenState extends State<AnswersScreen> with SingleTickerProvider
       final data = await ApiClient.instance.get('/api/quizzes/${widget.quizId}/answers/');
       final raw = data as Map<String, dynamic>;
       _quizTitle = raw['title'] as String? ?? widget.quizTitle;
-      _quizDescription = raw['description'] as String? ?? '';
       final topicsRaw = raw['topics'] as List? ?? [];
       _topics = topicsRaw.map((t) {
         final topicMap = Map<String, dynamic>.from(t as Map);
